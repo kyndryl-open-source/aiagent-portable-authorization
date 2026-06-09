@@ -1,0 +1,70 @@
+#
+# Copyright contributors to the aiagent-portable-authorization project.
+# SPDX-License-Identifier: MIT
+#
+# DEVELOPMENT-ONLY compose file. The ADMIN_API_KEY values, database
+# credentials, and signing keys generated on first start are all
+# placeholders. They MUST be replaced before any deployment beyond a
+# local laptop. See SECURITY.md for hardening guidance.
+#
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: portauth
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d portauth"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  portauth-issuer:
+    build:
+      context: .
+      dockerfile: portauth-issuer/Dockerfile
+    environment:
+      PORT: 3100
+      NODE_ENV: development
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/portauth
+      DB_SSL: "false"
+      ADMIN_API_KEY: dev-issuer-key-change-me
+      ISSUER_ID: http://portauth-issuer:3100
+      DEFAULT_TTL_HOURS: 24
+      MAX_TTL_HOURS: 720
+    ports:
+      - "3100:3100"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  portauth-engine:
+    build:
+      context: .
+      dockerfile: portauth-engine/Dockerfile
+    environment:
+      PORT: 3200
+      NODE_ENV: development
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/portauth
+      DB_SSL: "false"
+      ADMIN_API_KEY: dev-engine-key-change-me
+      PORTAUTH_EVALUATOR_ID: http://portauth-engine:3200
+      PORTAUTH_X509_REVOCATION_POLICY: soft-fail
+    ports:
+      - "3200:3200"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      portauth-issuer:
+        condition: service_started
+
+  opa:
+    image: openpolicyagent/opa:1.0.0
+    command: ["run", "--server", "--addr=0.0.0.0:8181", "/policies"]
+    ports:
+      - "8181:8181"
+    volumes:
+      - ./opa/policies:/policies:ro

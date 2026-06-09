@@ -1,0 +1,24 @@
+# PortAuth code owners
+#
+# Update the GitHub handle below to the maintainer's actual handle before
+# the first push. For multi-maintainer setups, replace with a team handle
+# such as @kyndryl-open-source/aiagent-portable-authorization-maintainers.
+
+# Catch-all owner for the repository.
+* @partha-kyndryl
+
+# Security-sensitive areas. Add additional reviewers here when a security
+# review team exists.
+/portauth-engine/src/services/credentialVerifier.js   @partha-kyndryl
+/portauth-engine/src/services/auditLogger.js          @partha-kyndryl
+/portauth-engine/src/services/x509Verifier.js         @partha-kyndryl
+/portauth-engine/src/services/delegationVerifier.js   @partha-kyndryl
+/portauth-engine/src/services/statefulAuthorizer.js   @partha-kyndryl
+/portauth-engine/src/services/stateAuthorityClient.js @partha-kyndryl
+/portauth-engine/src/services/revocationClient.js     @partha-kyndryl
+
+# Schema migrations are append-only.
+/portauth-db/migrations/  @partha-kyndryl
+
+# Conformance vectors define paper alignment.
+/conformance/  @partha-kyndryl

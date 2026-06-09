@@ -1,0 +1,17 @@
+{
+  "name": "@portauth/preflight",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "description": "Sender-side pre-flight discovery client for the portable authorization governance manifest (Plan 8).",
+  "main": "src/index.js",
+  "bin": {
+    "portauth-preflight": "src/cli.js"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "jose": "^5.9.6"
+  }
+}

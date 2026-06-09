@@ -1,0 +1,14 @@
+{
+  "name": "state-authority-ref",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "description": "Reference state authority server for the portable authorization state authority protocol (Plan 2).",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "express": "^4.21.1",
+    "jose": "^5.9.6"
+  }
+}

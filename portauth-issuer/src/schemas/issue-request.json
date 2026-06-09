@@ -1,0 +1,113 @@
+{
+  "type": "object",
+  "required": ["agentId", "permissions", "constraints"],
+  "properties": {
+    "agentId": { "type": "string", "minLength": 1 },
+    "audience": { "type": "string" },
+    "proofKeyJwk": {
+      "type": "object",
+      "description": "Public JWK bound to the credential for request-level proof of possession"
+    },
+    "permissions": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-zA-Z0-9_]+:[a-zA-Z0-9_]+$" },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "constraints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["NumericLimitConstraint", "TemporalWindowConstraint", "EnumeratedListConstraint", "StringPatternConstraint", "UsageLimitConstraint", "CumulativeLimitConstraint"]
+          },
+          "field": { "type": "string", "minLength": 1 }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "type": { "const": "NumericLimitConstraint" } } },
+            "then": {
+              "required": ["field", "operator", "value"],
+              "properties": {
+                "operator": { "type": "string", "enum": ["eq", "lt", "lte", "gt", "gte"] },
+                "value": { "type": "number" },
+                "currency": { "type": "string" }
+              }
+            }
+          },
+          {
+            "if": { "properties": { "type": { "const": "TemporalWindowConstraint" } } },
+            "then": {
+              "required": ["field"],
+              "properties": {
+                "validFrom": { "type": "string" },
+                "validUntil": { "type": "string" },
+                "timezone": { "type": "string" },
+                "daysOfWeek": {
+                  "type": "array",
+                  "items": { "type": "string", "enum": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] }
+                }
+              }
+            }
+          },
+          {
+            "if": { "properties": { "type": { "const": "EnumeratedListConstraint" } } },
+            "then": {
+              "required": ["field"],
+              "properties": {
+                "allowed": { "type": "array", "items": { "type": "string" } },
+                "denied": { "type": "array", "items": { "type": "string" } }
+              }
+            }
+          },
+          {
+            "if": { "properties": { "type": { "const": "StringPatternConstraint" } } },
+            "then": {
+              "required": ["field", "pattern", "matchType"],
+              "properties": {
+                "pattern": { "type": "string" },
+                "matchType": { "type": "string", "enum": ["exact", "prefix", "suffix", "restricted_glob"] }
+              }
+            }
+          },
+          {
+            "if": { "properties": { "type": { "const": "UsageLimitConstraint" } } },
+            "then": {
+              "properties": {
+                "id": { "type": "string" },
+                "maxUses": { "type": "number" },
+                "value": { "type": "number" },
+                "limit": { "type": "number" },
+                "period": { "type": "string", "enum": ["hour", "day", "month", "forever"] },
+                "scope": { "type": "string", "enum": ["credential", "agent", "issuer", "resource"] },
+                "scopeFields": { "type": "array", "items": { "type": "string" } }
+              }
+            }
+          },
+          {
+            "if": { "properties": { "type": { "const": "CumulativeLimitConstraint" } } },
+            "then": {
+              "required": ["field"],
+              "properties": {
+                "id": { "type": "string" },
+                "maxAmount": { "type": "number" },
+                "value": { "type": "number" },
+                "limit": { "type": "number" },
+                "period": { "type": "string", "enum": ["hour", "day", "month", "forever"] },
+                "scope": { "type": "string", "enum": ["credential", "agent", "issuer", "resource"] },
+                "scopeFields": { "type": "array", "items": { "type": "string" } }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "validFrom": { "type": "string", "format": "date-time" },
+    "validUntil": { "type": "string", "format": "date-time" },
+    "delegatedFrom": { "type": "string" }
+  },
+  "additionalProperties": false
+}

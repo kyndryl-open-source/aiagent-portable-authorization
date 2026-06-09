@@ -1,0 +1,151 @@
+[
+  {
+    "id": "AUD-01",
+    "requirement": "arXiv:2605.11487 audience binding",
+    "type": "audience",
+    "input": {
+      "aud": ["svc:claims-api", "svc:audit"],
+      "evaluatorId": "svc:claims-api"
+    },
+    "expected": { "pass": true }
+  },
+  {
+    "id": "AUD-02",
+    "requirement": "arXiv:2605.11487 audience binding fail closed",
+    "type": "audience",
+    "input": {
+      "aud": "svc:other-api",
+      "evaluatorId": "svc:claims-api"
+    },
+    "expected": { "pass": false, "errorCode": "audience_mismatch" }
+  },
+  {
+    "id": "CON-01",
+    "requirement": "arXiv:2605.11487 stateless constraint evaluation",
+    "type": "constraints",
+    "input": {
+      "constraints": [
+        { "type": "NumericLimitConstraint", "field": "core.amount", "operator": "lte", "value": 5000 }
+      ],
+      "context": { "action": "claim.settle", "resource": "/claims/1", "claimAmount": 4200 }
+    },
+    "expected": { "pass": true }
+  },
+  {
+    "id": "DEL-01",
+    "requirement": "arXiv:2605.11487 delegation issuer-subject continuity",
+    "type": "delegationLink",
+    "input": {
+      "parent": { "credentialId": "credential:parent", "agentId": "agent:broker" },
+      "child": { "issuerId": "agent:broker", "delegatedFrom": "credential:parent" }
+    },
+    "expected": { "pass": true }
+  },
+  {
+    "id": "DEL-02",
+    "requirement": "arXiv:2605.11487 delegation cannot drop parent constraints",
+    "type": "attenuation",
+    "input": {
+      "parent": {
+        "permissions": ["claim.settle"],
+        "constraints": [
+          { "type": "NumericLimitConstraint", "field": "core.amount", "operator": "lte", "value": 5000 },
+          { "type": "EnumeratedListConstraint", "field": "claimType", "allowed": ["collision"] }
+        ]
+      },
+      "child": {
+        "permissions": ["claim.settle"],
+        "constraints": [
+          { "type": "NumericLimitConstraint", "field": "core.amount", "operator": "lte", "value": 3000 }
+        ]
+      }
+    },
+    "expected": { "pass": false, "errorCode": "delegation_widened" }
+  },
+  {
+    "id": "DEL-03",
+    "requirement": "arXiv:2605.11487 stateful delegation attenuation",
+    "type": "attenuation",
+    "input": {
+      "parent": {
+        "permissions": ["claim.settle"],
+        "constraints": [
+          { "id": "daily-uses", "type": "UsageLimitConstraint", "maxUses": 5, "period": "day", "scope": "credential" }
+        ]
+      },
+      "child": {
+        "permissions": ["claim.settle"],
+        "constraints": [
+          { "id": "daily-uses", "type": "UsageLimitConstraint", "maxUses": 3, "period": "day", "scope": "credential" }
+        ]
+      }
+    },
+    "expected": { "pass": true }
+  },
+  {
+    "id": "MAP-01",
+    "requirement": "arXiv:2605.11487 governed semantic mapping conflict detection",
+    "type": "mappingProfile",
+    "input": {
+      "rows": [
+        {
+          "profile_id": "insurance-a",
+          "semantic_field": "insurance.claim_amount",
+          "local_field": "claimAmount",
+          "field_type": "number",
+          "trusted": true
+        },
+        {
+          "profile_id": "insurance-b",
+          "semantic_field": "insurance.claim_amount",
+          "local_field": "amount",
+          "field_type": "number",
+          "trusted": true
+        }
+      ],
+      "semanticField": "insurance.claim_amount"
+    },
+    "expected": { "pass": false, "errorCode": "semantic_alias_conflict" }
+  },
+  {
+    "id": "X509-01",
+    "requirement": "arXiv:2605.11487 Tier 2 X.509 trust chain validation",
+    "type": "x509Chain",
+    "input": {
+      "chainPemFiles": ["fixtures/tier2-leaf.pem", "fixtures/tier2-root.pem"],
+      "trustAnchorPemFile": "fixtures/tier2-root.pem",
+      "issuerId": "https://tier2.example.test",
+      "x509SanUri": "https://tier2.example.test",
+      "now": "2026-06-10T00:00:00Z"
+    },
+    "expected": { "pass": true }
+  },
+  {
+    "id": "ST-01",
+    "requirement": "arXiv:2605.11487 stateful cumulative authorization profile",
+    "type": "statefulSequence",
+    "input": {
+      "payload": {
+        "credentialId": "credential:stateful-vector",
+        "agentId": "agent:stateful",
+        "issuerId": "https://issuer.example.test"
+      },
+      "constraints": [
+        {
+          "id": "daily-amount",
+          "type": "CumulativeLimitConstraint",
+          "field": "claimAmount",
+          "maxAmount": 5000,
+          "period": "day",
+          "scope": "credential"
+        }
+      ],
+      "requests": [
+        { "context": { "action": "claim.settle", "resource": "/claims/1", "claimAmount": 3000 }, "expectedPass": true },
+        { "context": { "action": "claim.settle", "resource": "/claims/2", "claimAmount": 2500 }, "expectedPass": false }
+      ],
+      "now": "2026-06-10T00:00:00Z"
+    },
+    "expected": { "pass": true }
+  }
+]
