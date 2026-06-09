@@ -110,7 +110,10 @@ function isReservedSemanticIdentifier(fieldPath) {
 
 /**
  * Load mapping profiles from the portauth_mapping_profiles table.
- * Falls back to default MVV mappings if no profiles exist.
+ *
+ * The built-in MVV identifiers (`defaultMappings()`) are always available.
+ * Rows from `portauth_mapping_profiles` extend or override them, so adding
+ * a custom profile to the DB never makes a core identifier disappear.
  */
 async function loadMappings() {
   const now = Date.now();
@@ -118,7 +121,8 @@ async function loadMappings() {
     return mappingCache;
   }
 
-  // Check if the mapping profiles table exists (graceful fallback)
+  const merged = defaultMappings();
+
   try {
     const pool = getPool();
     const { rows } = await pool.query(
@@ -127,17 +131,17 @@ async function loadMappings() {
     );
 
     if (rows.length > 0) {
-      mappingCache = buildMappingCacheFromRows(rows);
-      cacheLoadedAt = now;
-      return mappingCache;
+      const dbMappings = buildMappingCacheFromRows(rows);
+      for (const [key, value] of dbMappings) {
+        merged.set(key, value);
+      }
     }
   } catch (_) {
-    // Table doesn't exist yet or the local test DB is unavailable — use defaults
+    // Table doesn't exist yet or the local test DB is unavailable; defaults stand on their own.
     await closePool();
   }
 
-  // Default MVV + insurance profile mappings (built-in)
-  mappingCache = defaultMappings();
+  mappingCache = merged;
   cacheLoadedAt = now;
   return mappingCache;
 }
