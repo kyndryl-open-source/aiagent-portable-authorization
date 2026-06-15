@@ -111,16 +111,37 @@ router.get("/agent-governance", async (_req, res) => {
 
       vocabularyVersion: "mvv-0.1",
       recognizedFields: {
+        // MUST stay in sync with defaultMappings() in services/semanticResolver.js.
         core: [
+          // Request-context attributes
           "core.amount",
           "core.currency_code",
+          "core.currency",
           "core.request_time",
+          "core.timestamp",
           "core.resource_id",
+          "core.resource_type",
           "core.action",
           "core.workflow_id",
+          "core.workflow_role",
+          "core.workflow_step_id",
           "core.recipient_id",
           "core.count",
           "core.quantity",
+          "core.total_budget",
+          "core.geo_region",
+          // Credential-derived facts (enriched via contextEnricher)
+          "core.issuer_id",
+          "core.subject_id",
+          "core.presenter_id",
+          "core.audience_id",
+          "core.permission",
+          "core.valid_from",
+          "core.valid_until",
+          "core.delegator_id",
+          // Request-envelope facts
+          "core.request_id",
+          "core.ip_address",
         ],
         insurance: [
           "insurance.claim_amount",
