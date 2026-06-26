@@ -1,0 +1,48 @@
+#
+# Copyright contributors to the aiagent-portable-authorization project.
+# SPDX-License-Identifier: MIT
+#
+# Local TLS overlay for the A2A reference receiver. Use with:
+#
+#   docker compose -f portauth-docker-compose.yml -f extensions/a2a/docker-compose.tls.yml up -d --build
+#
+# Generate local certs first:
+#
+#   extensions/a2a/tls/generate-localhost-cert.sh
+#
+# This is a development example. Production deployments should terminate TLS
+# with a CA-signed certificate or managed load balancer / ingress controller.
+
+services:
+  a2a-reference-receiver:
+    build:
+      context: .
+      dockerfile: extensions/a2a/reference-receiver/Dockerfile
+    environment:
+      NODE_ENV: development
+      HOST: 0.0.0.0
+      PORT: 3300
+      ENGINE_URL: http://portauth-engine:3200
+      A2A_RECEIVER_URL: https://localhost:3443
+      A2A_RECEIVER_AUTH_MODE: bearer
+      A2A_RECEIVER_BEARER_TOKEN: dev-a2a-receiver-token-change-me
+      # The receiver fails closed on placeholder secrets; this local TLS demo
+      # uses the obviously-fake change-me token, so allow it explicitly. Never
+      # set A2A_DEV_INSECURE in a real deployment — supply a real token instead.
+      A2A_DEV_INSECURE: "true"
+      A2A_ENABLE_TASK_LOOKUP: "false"
+    expose:
+      - "3300"
+    depends_on:
+      portauth-engine:
+        condition: service_started
+
+  a2a-nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "3443:443"
+    volumes:
+      - ./extensions/a2a/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./extensions/a2a/tls:/etc/nginx/tls:ro
+    depends_on:
+      - a2a-reference-receiver

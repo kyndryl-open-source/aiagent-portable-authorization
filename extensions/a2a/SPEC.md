@@ -9,7 +9,7 @@ carried by, and evaluated within, a Google Agent2Agent (A2A) message flow.
 | Short name | `portauth-a2a/v1` |
 | Spec version | 1.0.0-draft.1 |
 | Engine compatibility | `aiagent-portable-authorization` v0.1.0 and later |
-| A2A spec compatibility | A2A 0.3.x |
+| A2A spec compatibility | A2A 1.0 HTTP+JSON binding; 0.3.x migration notes retained where relevant |
 | License | MIT |
 
 ## 1. Goals
@@ -99,25 +99,26 @@ The full metadata key for the credential itself is therefore:
 
 `https://kyndryl-open-source.github.io/aiagent-portable-authorization/a2a/v1/vc`
 
-### 2.4 PoC coverage vs deferred behavior
+### 2.4 Reference implementation coverage
 
-The v1 spec defines the full data placement above. The reference PoC in
-`extensions/a2a/poc/` exercises only the subset required to prove the
-metadata round-trip end-to-end:
+The v1 spec defines the full data placement above. The reusable implementation
+under `extensions/a2a/` provides metadata helpers, schemas, a receiver guard,
+and real HTTP+JSON reference presenter/receiver processes. The older
+single-process PoC remains available under `extensions/a2a/poc/`.
 
-| Metadata key | Spec | v0.1 PoC | Deferred to |
+| Metadata key | Spec | Reusable implementation | Notes |
 |---|---|---|---|
 | `<URI>/vc` (Tier 1 JWT) | yes | yes | n/a |
-| `<URI>/vc` (Tier 3 vc+jose) | yes | no | Phase 2 (receiver middleware) |
+| `<URI>/vc` (Tier 3 vc+jose) | yes | schema + receiver forwarding | Engine support is exercised by engine tests; the reference scenario uses Tier 1 for local setup simplicity. |
 | `<URI>/vcFormat` | yes | yes (forwarded) | n/a |
 | `<URI>/presenterId` | yes | yes | n/a |
 | `<URI>/idempotencyKey` | yes | yes (forwarded) | n/a |
-| `<URI>/proofOfPossession` | yes | no | Phase 2 |
-| `<URI>/delegationChain` (N-hop) | yes | no | Phase 2 |
+| `<URI>/proofOfPossession` | yes | yes (forwarded) | PoP verification is performed by the engine when required. |
+| `<URI>/delegationChain` (N-hop) | yes | yes (`/evaluate/batch`) | Covered by receiver conformance tests. |
 
 Receivers built against this spec MUST support every row marked `yes` under
-Spec. The PoC's narrower coverage is a property of the demo, not a relaxation
-of the spec.
+Spec. The legacy PoC's narrower coverage is a property of that compact demo,
+not a relaxation of the spec.
 
 ## 3. Receiver evaluation
 
@@ -132,20 +133,45 @@ On receipt of an A2A request that carries the extension, the receiver MUST:
 
 | A2A source | PortAuth requestContext field | Notes |
 |---|---|---|
-| `message.role` + `message.parts[].kind`/skill invoked | `action` | The receiver maps to its permission namespace, e.g. `payments:transfer`. |
+| `message.role` + `message.parts[]`/skill invoked | `action` | The receiver maps to its permission namespace, e.g. `payments:transfer`. |
 | Target skill identifier or resource path | `resource` | Receiver-defined. The bank example uses `urn:bank:accounts/<account_id>`. |
 | `message.taskId` or generated UUID | `requestId` | Surfaces in audit. |
 | Caller `presenterId` from metadata | `presenterId` | Required by the engine. |
 
-4. POST to the engine `/evaluate` (single VC) or `/evaluate/batch`
+4. Persist a receiver task record in `pending` state before calling the engine.
+   The record MUST include the receiver task id, receiver idempotency key,
+   mapped `requestContext`, presenter id, credential format, and lifecycle
+   state. It MUST NOT persist the raw credential unless the deployment has a
+   separate explicit retention policy.
+5. POST to the engine `/evaluate` (single VC) or `/evaluate/batch`
    (delegation chain) with the translated body.
-5. On `decision: "allow"`, perform the action and reply with the normal A2A
-   success envelope. On `decision: "deny"`, map the engine `error` code into
-   an A2A error response (see §6) and return.
-6. Echo the extension URI in the response's `A2A-Extensions` header.
+6. Persist the final task lifecycle state, engine `auditRecordId`, and exact
+   A2A response before returning to the caller. On `decision: "allow"`, the
+   receiver may then accept or perform the task and reply with the normal A2A
+   success envelope. On `decision: "deny"`, map the engine `error` code into a
+   google.rpc-style A2A error response (see §6) and return.
+7. Echo the extension URI in the response's `A2A-Extensions` header.
 
-The receiver MUST persist `auditRecordId` from the engine response on the
-task record so the audit row can be located later.
+The receiver MUST surface `auditRecordId` from the engine response on the
+A2A task or error payload so the audit row can be located later. Receivers
+MUST persist that association durably for production deployments. The reusable
+receiver guard defines an async storage contract and defaults to an in-memory
+store only for development and CI.
+
+The receiver idempotency key is selected in this order:
+
+1. PortAuth metadata `<URI>/idempotencyKey`.
+2. A2A `message.messageId`.
+
+If a request arrives with an idempotency key that already has a stored final
+`completed` or `denied` response, the receiver SHOULD replay that stored
+response instead of evaluating or acting again. Receivers SHOULD NOT use A2A
+`message.taskId` as the idempotency key because a single task can legitimately
+receive multiple continuation messages. Transient `failed` responses SHOULD NOT
+poison the idempotency key permanently; a retry SHOULD re-attempt evaluation.
+Production receivers SHOULD define a reconciliation or TTL policy for orphaned
+`pending` records left by process failure or post-evaluation persistence
+failure.
 
 ## 4. Two-decision and N-hop chains
 
@@ -213,43 +239,48 @@ The flow:
      planned request)
 5. If any rule fails with severity `error`, do not send.
 
-The `@portauth/a2a` SDK provides `preflight(agentCardUrl, vc, intendedAction)`
-that wraps these steps.
+The `portauth-a2a` SDK provides `preflight(agentCardUrl, vc, intendedAction)`
+that wraps these steps. `intendedAction` MAY be the request context itself or
+an object with a `requestContext` field.
 
 ## 6. Error mapping
 
 The receiver maps PortAuth engine error codes to A2A error responses as
 follows. All engine error codes are stable strings.
 
-| Engine `error` | HTTP | A2A error code | Notes |
+| Engine `error` | HTTP | A2A reason | Notes |
 |---|---|---|---|
-| `validation_error` | 400 | `invalid_request` | Caller bug. |
-| `credential_incomplete` | 422 | `invalid_request` | VC is malformed. |
-| `signature_invalid` | 422 | `auth_failed` | |
-| `credential_expired` | 422 | `auth_failed` | |
-| `issuer_untrusted` | 422 | `auth_failed` | |
-| `audience_mismatch` | 422 | `auth_failed` | The VC was issued for a different receiver. |
-| `proof_of_possession_failed` | 422 | `auth_failed` | |
-| `subject_binding_mismatch` | 422 | `auth_failed` | `presenterId` does not match the VC's `sub`. |
-| `credential_revoked` | 422 | `auth_failed` | |
-| `tier1_revocation_unavailable` | 422 | `auth_unavailable` | Receiver MAY retry. |
-| `permission_denied` | 200 | `forbidden` | VC valid, but the requested action is out of scope. |
-| `constraint_failed` | 200 | `forbidden` | Default code returned when a typed bound rejects the request. |
-| `local_policy_denied` | 200 | `forbidden` | Receiver-side policy (KYC, AML, fraud) rejected. |
-| `delegation_widened` | 200 | `forbidden` | A chain link tried to escalate. |
-| `audit_signing_failed` | 500 | `internal_error` | Receiver MAY retry. |
+| `validation_error` | 400 | `PORTAUTH_INVALID_REQUEST` | Caller bug. |
+| `credential_incomplete` | 422 | `PORTAUTH_CREDENTIAL_INCOMPLETE` | VC is malformed. |
+| `signature_invalid` | 401 | `PORTAUTH_SIGNATURE_INVALID` | |
+| `credential_expired` | 401 | `PORTAUTH_CREDENTIAL_EXPIRED` | |
+| `issuer_untrusted` | 401 | `PORTAUTH_ISSUER_UNTRUSTED` | |
+| `audience_mismatch` | 401 | `PORTAUTH_AUDIENCE_MISMATCH` | The VC was issued for a different receiver. |
+| `proof_of_possession_failed` | 401 | `PORTAUTH_PROOF_OF_POSSESSION_FAILED` | |
+| `subject_binding_mismatch` | 401 | `PORTAUTH_SUBJECT_BINDING_MISMATCH` | `presenterId` does not match the VC's `sub`. |
+| `credential_revoked` | 401 | `PORTAUTH_CREDENTIAL_REVOKED` | |
+| `tier1_revocation_unavailable` | 503 | `PORTAUTH_REVOCATION_UNAVAILABLE` | Receiver MAY retry. |
+| `x509_revocation_unavailable` | 503 | `PORTAUTH_REVOCATION_UNAVAILABLE` | Receiver MAY retry. |
+| `permission_denied` | 403 | `PORTAUTH_PERMISSION_DENIED` | VC valid, but the requested action is out of scope. |
+| `constraint_failed` | 403 | `PORTAUTH_CONSTRAINT_FAILED` | Default code returned when a typed bound rejects the request. |
+| `local_policy_denied` | 403 | `PORTAUTH_LOCAL_POLICY_DENIED` | Receiver-side policy (KYC, AML, fraud) rejected. |
+| `delegation_widened` | 403 | `PORTAUTH_DELEGATION_WIDENED` | A chain link tried to escalate. |
+| `delegation_chain_broken` | 401 | `PORTAUTH_DELEGATION_CHAIN_BROKEN` | A chain link failed verification. |
+| `delegation_depth_exceeded` | 403 | `PORTAUTH_DELEGATION_DEPTH_EXCEEDED` | Chain exceeds receiver policy. |
+| `audit_signing_failed` | 500 | `PORTAUTH_AUDIT_SIGNING_FAILED` | Receiver MAY retry. |
 
 Individual constraint evaluators MAY surface a more specific `error` value
 (for example `context_field_missing`, `numeric_limit_exceeded`,
 `semantic_identifier_unknown`, `temporal_window_violated`,
 `enumerated_list_violated`, `pattern_violated`, `cumulative_limit_exceeded`,
 `usage_limit_exceeded`). Receivers SHOULD treat any unrecognized engine
-`error` that arrives with `decision: "deny"` as `forbidden`, preserve the
-raw code in the A2A error `data` payload for diagnostics, and SHOULD log
-for MVV alignment drift.
+`error` that arrives with `decision: "deny"` as HTTP 403 with reason
+`PORTAUTH_AUTHORIZATION_DENIED`, preserve the raw code in the A2A
+`google.rpc.ErrorInfo.metadata` payload for diagnostics, and SHOULD log for
+MVV alignment drift.
 
 Receivers SHOULD include the engine `auditRecordId` in the A2A error
-response's `data` field for debuggability.
+response's `google.rpc.ErrorInfo.metadata` field for debuggability.
 
 ## 7. Worked example: UC-03 banking cross-boundary
 
@@ -299,7 +330,7 @@ POST /message:send HTTP/1.1
 Host: bank.example
 Content-Type: application/a2a+json
 A2A-Extensions: https://kyndryl-open-source.github.io/aiagent-portable-authorization/a2a/v1
-A2A-Version: 0.3
+A2A-Version: 1.0
 ```
 
 ```json
@@ -422,19 +453,34 @@ spec.
 1. **VC confidentiality.** A VC in `message.metadata` is end-to-end visible
    on every A2A hop. Receivers MUST NOT log raw VCs at INFO level. Use only
    the `credentialId` claim for diagnostics.
-2. **Replay.** Receivers SHOULD pass the A2A `taskId` or generate a
-   `requestId` and supply it to the engine as `idempotencyKey` for any
-   action that has stateful constraints.
+2. **Replay.** Receivers SHOULD pass an explicit PortAuth idempotency key or a
+   unique message/request id to the engine as `idempotencyKey` for any action
+   that has stateful constraints. Receivers SHOULD NOT use A2A `taskId` as the
+   default because task continuations reuse it.
 3. **Proof of possession.** Tier 3 VCs SHOULD include a `cnf` claim binding
    the credential to a public key, and callers SHOULD attach a
    `<URI>/proofOfPossession` signed with the bound key. Without PoP a stolen
-   VC is bearer-equivalent.
+   VC is bearer-equivalent. A receiver MAY enforce a **mandatory PoP policy**:
+   for configured sensitive actions or credential profiles it rejects any
+   request lacking `<URI>/proofOfPossession` with HTTP 401 and reason
+   `PORTAUTH_POP_REQUIRED`, before calling the engine. This makes PoP
+   non-optional at the boundary; the engine still performs the cryptographic
+   verification of the proof against the `cnf` key. The reference receiver
+   exposes this via the `requireProofOfPossession` option (`A2A_REQUIRE_POP`,
+   `A2A_POP_REQUIRED_ACTIONS`).
 4. **Required vs optional.** A receiver that publishes `required: true` and
    then accepts unauthorized requests during outages defeats the
    declaration. Failure-mode behavior MUST match the declaration.
 5. **Header trust.** The `A2A-Extensions` header is not signed. Receivers
    MUST NOT skip evaluation based on its absence alone; they MUST also
    check `message.metadata` for any keys under the extension URI.
+6. **Endpoint authentication.** PortAuth credential authorization does not
+   authenticate the receiver's HTTP endpoint. Deployments SHOULD protect
+   `POST /message:send` with endpoint authentication appropriate to the
+   environment. The reference receiver supports optional bearer-token
+   authentication through `A2A_RECEIVER_AUTH_MODE=bearer` and
+   `A2A_RECEIVER_BEARER_TOKEN`; production deployments can replace that with
+   gateway, ingress, OIDC/JWT, or service-mesh controls.
 
 ## 9. Versioning
 
@@ -473,17 +519,22 @@ actions.
 
 ## Appendix A. JSON Schema (informative)
 
-A formal JSON Schema for the `message.metadata` entries will accompany the
-first non-draft version of this spec. The current draft codifies the shape
-in §2.3.
+Formal JSON Schemas are provided in this repository:
+
+- `extensions/a2a/schemas/metadata.schema.json`
+- `extensions/a2a/schemas/agent-card-extension.schema.json`
 
 ## Appendix B. Reference implementation
 
-- `extensions/a2a/poc/` in this repository runs the §7 UC-03 flow end-to-end
-  against the standard PortAuth compose stack. It is the smallest possible
-  artifact that demonstrates the metadata-envelope round-trip.
-- `extensions/a2a/sdk/` (planned) will package `@portauth/a2a` for callers.
-- `extensions/a2a/middleware/` (planned) will package
-  `@portauth/a2a-receiver` for receivers.
-- `extensions/a2a/reference-receiver/` and `reference-presenter/` (planned)
-  will provide minimal A2A agents wired against the SDK and middleware.
+- `extensions/a2a/sdk/` packages `portauth-a2a` caller helpers for metadata,
+  Agent Card discovery, and `sendWithVc()`.
+- `extensions/a2a/receiver-middleware/` packages `portauth-a2a-receiver`, a
+  framework-neutral guard that validates A2A requests and calls `/evaluate` or
+  `/evaluate/batch`.
+- `extensions/a2a/reference-receiver/` exposes a real A2A HTTP+JSON server with
+  `/.well-known/agent-card.json`, `/message:send`, and task lookup endpoints.
+- `extensions/a2a/reference-presenter/` discovers the receiver Agent Card,
+  obtains a credential, and sends allow/deny bill-payment scenarios.
+- `extensions/a2a/tests/` contains conformance checks for metadata, Agent Card
+  declaration, header activation, allow/deny mapping, and delegation routing.
+- `extensions/a2a/poc/` is retained as the compact single-process smoke demo.

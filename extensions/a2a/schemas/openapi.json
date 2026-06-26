@@ -1,0 +1,312 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "PortAuth A2A Receiver",
+    "version": "1.0.0-draft.1",
+    "description": "HTTP+JSON contract for a PortAuth-enforcing A2A receiver. The receiver authorizes A2A messages with the PortAuth engine before accepting a task. The PortAuth extension is carried in `message.metadata` under keys prefixed with the extension URI and activated via the `A2A-Extensions` header. See SPEC.md for normative details.",
+    "license": { "name": "MIT" }
+  },
+  "servers": [
+    { "url": "http://localhost:3300", "description": "Local reference receiver" }
+  ],
+  "tags": [
+    { "name": "a2a", "description": "A2A message exchange" },
+    { "name": "tasks", "description": "Task lookup" },
+    { "name": "ops", "description": "Operational endpoints" }
+  ],
+  "paths": {
+    "/message:send": {
+      "post": {
+        "tags": ["a2a"],
+        "summary": "Submit an A2A message for PortAuth authorization",
+        "description": "Validates the request, requires the PortAuth extension to be activated, maps the message to a PortAuth requestContext, and calls the engine. Returns an A2A task on allow, a google.rpc.Status error on deny, or 202 with a pending task for an in-flight idempotent duplicate.",
+        "operationId": "sendMessage",
+        "security": [{}, { "receiverBearer": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/A2AExtensions" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/SendMessageRequest" } }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Authorization succeeded; the task was accepted.",
+            "headers": { "X-Request-Id": { "$ref": "#/components/headers/XRequestId" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TaskEnvelope" } } }
+          },
+          "202": {
+            "description": "An idempotent duplicate is still pending; the in-flight task is returned.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TaskEnvelope" } } }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "412": { "$ref": "#/components/responses/Error" },
+          "500": { "$ref": "#/components/responses/Error" },
+          "503": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/tasks": {
+      "get": {
+        "tags": ["tasks"],
+        "summary": "List recent task records",
+        "description": "Disabled unless A2A_ENABLE_TASK_LOOKUP=true. Guarded by A2A_TASK_READ_TOKEN.",
+        "operationId": "listTasks",
+        "security": [{ "taskReadBearer": [] }],
+        "responses": {
+          "200": {
+            "description": "Recent task records, newest first.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "tasks": { "type": "array", "items": { "$ref": "#/components/schemas/Task" } },
+                    "records": { "type": "array", "items": { "$ref": "#/components/schemas/TaskRecord" } }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/tasks/{taskId}": {
+      "get": {
+        "tags": ["tasks"],
+        "summary": "Fetch a single task record",
+        "operationId": "getTask",
+        "security": [{ "taskReadBearer": [] }],
+        "parameters": [
+          { "name": "taskId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "The task record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "task": { "$ref": "#/components/schemas/Task" },
+                    "record": { "$ref": "#/components/schemas/TaskRecord" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/.well-known/agent-card.json": {
+      "get": {
+        "tags": ["a2a"],
+        "summary": "PortAuth-extended A2A Agent Card",
+        "operationId": "getAgentCard",
+        "responses": {
+          "200": {
+            "description": "Agent Card declaring the PortAuth extension.",
+            "content": { "application/json": { "schema": { "type": "object" } } }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": ["ops"],
+        "summary": "Liveness probe",
+        "operationId": "getHealth",
+        "responses": {
+          "200": {
+            "description": "Process is up.",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "type": "boolean" } } } } }
+          }
+        }
+      }
+    },
+    "/ready": {
+      "get": {
+        "tags": ["ops"],
+        "summary": "Readiness probe",
+        "description": "Probes engine reachability and task-store connectivity. Returns 503 until both pass.",
+        "operationId": "getReady",
+        "responses": {
+          "200": { "description": "Ready.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Readiness" } } } },
+          "503": { "description": "Not ready.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Readiness" } } } }
+        }
+      }
+    },
+    "/metrics": {
+      "get": {
+        "tags": ["ops"],
+        "summary": "Prometheus metrics",
+        "description": "Disabled unless A2A_ENABLE_METRICS=true. Optionally guarded by A2A_METRICS_TOKEN.",
+        "operationId": "getMetrics",
+        "security": [{}, { "metricsBearer": [] }],
+        "responses": {
+          "200": { "description": "Prometheus text exposition.", "content": { "text/plain": { "schema": { "type": "string" } } } },
+          "401": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/openapi.json": {
+      "get": {
+        "tags": ["ops"],
+        "summary": "This OpenAPI document",
+        "operationId": "getOpenApi",
+        "responses": {
+          "200": { "description": "The OpenAPI contract.", "content": { "application/json": { "schema": { "type": "object" } } } }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "receiverBearer": { "type": "http", "scheme": "bearer", "description": "Endpoint auth for /message:send when A2A_RECEIVER_AUTH_MODE=bearer." },
+      "taskReadBearer": { "type": "http", "scheme": "bearer", "description": "A2A_TASK_READ_TOKEN for task lookup." },
+      "metricsBearer": { "type": "http", "scheme": "bearer", "description": "A2A_METRICS_TOKEN for /metrics." }
+    },
+    "parameters": {
+      "A2AExtensions": {
+        "name": "A2A-Extensions",
+        "in": "header",
+        "required": true,
+        "description": "Must include the PortAuth extension URI to activate the extension.",
+        "schema": { "type": "string" },
+        "example": "https://kyndryl-open-source.github.io/aiagent-portable-authorization/a2a/v1"
+      }
+    },
+    "headers": {
+      "XRequestId": {
+        "description": "Correlation id echoed by the receiver and forwarded to the engine.",
+        "schema": { "type": "string" }
+      }
+    },
+    "responses": {
+      "Error": {
+        "description": "A google.rpc.Status-shaped A2A error.",
+        "headers": { "X-Request-Id": { "$ref": "#/components/headers/XRequestId" } },
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GoogleRpcStatus" } } }
+      }
+    },
+    "schemas": {
+      "SendMessageRequest": {
+        "type": "object",
+        "required": ["message"],
+        "properties": {
+          "message": { "$ref": "#/components/schemas/Message" }
+        }
+      },
+      "Message": {
+        "type": "object",
+        "required": ["role", "parts"],
+        "properties": {
+          "messageId": { "type": "string" },
+          "taskId": { "type": "string" },
+          "contextId": { "type": "string" },
+          "role": { "type": "string", "enum": ["ROLE_USER", "ROLE_AGENT"] },
+          "parts": { "type": "array", "minItems": 1, "items": { "$ref": "#/components/schemas/Part" } },
+          "extensions": { "type": "array", "items": { "type": "string" } },
+          "metadata": { "$ref": "#/components/schemas/PortAuthMetadata" }
+        }
+      },
+      "Part": {
+        "type": "object",
+        "description": "Exactly one of text, data, raw, or url.",
+        "properties": {
+          "text": { "type": "string" },
+          "data": { "type": "object" },
+          "mediaType": { "type": "string" }
+        }
+      },
+      "PortAuthMetadata": {
+        "type": "object",
+        "description": "Extension-keyed metadata. Keys are prefixed with the extension URI; see schemas/metadata.schema.json.",
+        "properties": {
+          "<URI>/vc": { "description": "The Verifiable Credential (string or object)." },
+          "<URI>/vcFormat": { "type": "string", "enum": ["tier1-jwt", "tier2-x509-jwt", "tier3-vc-jose"] },
+          "<URI>/presenterId": { "type": "string" },
+          "<URI>/idempotencyKey": { "type": "string" },
+          "<URI>/proofOfPossession": { "type": "object" },
+          "<URI>/delegationChain": { "type": "array", "items": {} }
+        },
+        "additionalProperties": true
+      },
+      "TaskEnvelope": {
+        "type": "object",
+        "properties": { "task": { "$ref": "#/components/schemas/Task" } }
+      },
+      "Task": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "contextId": { "type": "string" },
+          "status": {
+            "type": "object",
+            "properties": {
+              "state": { "type": "string", "example": "TASK_STATE_COMPLETED" },
+              "message": { "type": "object" }
+            }
+          },
+          "metadata": { "type": "object" }
+        }
+      },
+      "TaskRecord": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "taskId": { "type": "string" },
+          "idempotencyKey": { "type": "string" },
+          "lifecycleState": { "type": "string", "enum": ["pending", "completed", "denied", "failed"] },
+          "auditRecordId": { "type": "string" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Readiness": {
+        "type": "object",
+        "properties": {
+          "ready": { "type": "boolean" },
+          "checks": {
+            "type": "object",
+            "properties": {
+              "engine": { "type": "object", "properties": { "ok": { "type": "boolean" }, "error": { "type": "string" } } },
+              "store": { "type": "object", "properties": { "ok": { "type": "boolean" }, "error": { "type": "string" } } }
+            }
+          }
+        }
+      },
+      "GoogleRpcStatus": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": { "type": "integer" },
+              "message": { "type": "string" },
+              "status": { "type": "string" },
+              "details": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "@type": { "type": "string" },
+                    "reason": { "type": "string", "example": "PORTAUTH_PERMISSION_DENIED" },
+                    "metadata": { "type": "object" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
