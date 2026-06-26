@@ -1,0 +1,18 @@
+{
+  "name": "portauth-a2a-reference-receiver",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "description": "Reference A2A HTTP+JSON receiver enforcing PortAuth before task acceptance.",
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "portauth-a2a": "file:../sdk",
+    "portauth-a2a-receiver": "file:../receiver-middleware"
+  },
+  "scripts": {
+    "start": "node src/server.js"
+  }
+}

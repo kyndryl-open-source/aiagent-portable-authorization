@@ -51,6 +51,17 @@ If the agent requests access to a $7,000 claim, outside business hours, or for a
 
 ---
 
+## Extensions
+
+| Extension | What's inside |
+|---|---|
+| [extensions/a2a](extensions/a2a/README.md) | Carry PortAuth credentials over Google A2A (Agent2Agent). Spec, caller SDK, framework-neutral receiver guard, and reference HTTP+JSON agents. |
+| [extensions/a2a/SPEC.md](extensions/a2a/SPEC.md) | Normative A2A extension specification (metadata placement, delegation chains, error mapping). |
+| [extensions/a2a/OPERATIONS.md](extensions/a2a/OPERATIONS.md) | A2A receiver production runbook: secret handling, rotation, monitoring, alerts, reconciliation. |
+| [extensions/a2a/TLS.md](extensions/a2a/TLS.md) | Local nginx TLS reverse-proxy example for the A2A receiver. |
+
+---
+
 ## Project hygiene
 
 - [CONTRIBUTING.md](CONTRIBUTING.md): development setup, PR checklist, DCO sign-off (embedded text).

@@ -26,6 +26,10 @@ app.use("/audit", auditRouter);
 app.use("/admin", adminRouter);
 app.use("/.well-known", wellknownRouter);
 
+if (!process.env.ENGINE_EVALUATE_AUTH_TOKEN) {
+  console.warn("WARN: ENGINE_EVALUATE_AUTH_TOKEN is unset — /evaluate endpoints are unauthenticated. Set it (and the receiver's A2A_ENGINE_AUTH_TOKEN) to require a bearer token in production.");
+}
+
 // ── Global error handler ────────────────────────────────────────────
 app.use((err, _req, res, _next) => {
   console.error("Unhandled error:", err);

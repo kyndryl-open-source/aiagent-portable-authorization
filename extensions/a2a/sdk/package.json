@@ -1,0 +1,45 @@
+{
+  "name": "portauth-a2a",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Caller-side helpers for carrying PortAuth credentials over A2A HTTP+JSON.",
+  "license": "MIT",
+  "author": "Kyndryl, Inc and contributors to the aiagent-portable-authorization project",
+  "homepage": "https://kyndryl-open-source.github.io/aiagent-portable-authorization/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kyndryl-open-source/aiagent-portable-authorization.git",
+    "directory": "extensions/a2a/sdk"
+  },
+  "bugs": {
+    "url": "https://github.com/kyndryl-open-source/aiagent-portable-authorization/issues"
+  },
+  "keywords": [
+    "portauth",
+    "a2a",
+    "agent-to-agent",
+    "authorization",
+    "verifiable-credentials",
+    "ai-agents"
+  ],
+  "main": "src/index.js",
+  "types": "src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    }
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test ../tests/*.test.js"
+  }
+}

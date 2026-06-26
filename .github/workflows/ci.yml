@@ -24,7 +24,7 @@ jobs:
               echo "MISSING AI-notice header: $f"
               missing=1
             fi
-          done < <(find portauth-engine portauth-issuer sdks state-authority-ref conformance opa portauth-db tests -type f \
+          done < <(find portauth-engine portauth-issuer sdks state-authority-ref conformance opa portauth-db tests extensions/a2a -type f \
                      \( -name '*.js' -o -name '*.py' -o -name '*.sh' -o -name '*.sql' -o -name '*.rego' \) \
                      -not -path '*/node_modules/*' 2>/dev/null)
           exit "$missing"
@@ -79,6 +79,14 @@ jobs:
 
       - name: Run preflight SDK tests
         working-directory: sdks/preflight
+        run: npm test
+
+      - name: Install A2A extension deps
+        working-directory: extensions/a2a
+        run: npm ci || npm install
+
+      - name: Run A2A extension tests
+        working-directory: extensions/a2a
         run: npm test
 
   conformance:
@@ -144,9 +152,40 @@ jobs:
           ISSUER_JWKS_URI: http://portauth-issuer:3100/.well-known/jwks.json
         run: ./portauth-engine/test/e2e-smoke.sh
 
+      - name: Run A2A reference smoke
+        env:
+          ISSUER_URL: http://localhost:3100
+          ENGINE_URL: http://localhost:3200
+          A2A_RECEIVER_URL: http://localhost:3300
+          ISSUER_ID_FOR_ENGINE: http://portauth-issuer:3100
+        run: |
+          cd extensions/a2a
+          npm ci || npm install
+          # Mint an ephemeral, non-placeholder receiver token so the secret guard
+          # accepts it and the real bearer path is exercised end-to-end. The
+          # presenter reads A2A_RECEIVER_BEARER_TOKEN from the environment.
+          export A2A_RECEIVER_BEARER_TOKEN="$(openssl rand -hex 16)"
+          PORT=3300 ENGINE_URL=http://localhost:3200 A2A_RECEIVER_AUTH_MODE=bearer A2A_RECEIVER_BEARER_TOKEN="$A2A_RECEIVER_BEARER_TOKEN" node reference-receiver/src/server.js > /tmp/portauth-a2a-receiver.log 2>&1 &
+          receiver_pid=$!
+          trap 'kill "$receiver_pid" >/dev/null 2>&1 || true' EXIT
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3300/health >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl -sf http://localhost:3300/health >/dev/null
+          node reference-presenter/src/send-bill-payment.js allow
+          node reference-presenter/src/send-bill-payment.js deny-amount
+
       - name: Dump compose logs on failure
         if: failure()
-        run: docker compose -f portauth-docker-compose.yml logs --tail=400
+        run: |
+          docker compose -f portauth-docker-compose.yml logs --tail=400
+          if [[ -f /tmp/portauth-a2a-receiver.log ]]; then
+            echo "== A2A receiver log =="
+            cat /tmp/portauth-a2a-receiver.log
+          fi
 
       - name: Tear down compose
         if: always()

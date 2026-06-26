@@ -1,0 +1,46 @@
+{
+  "name": "portauth-a2a-receiver",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Framework-neutral receiver guard for enforcing PortAuth on A2A HTTP+JSON requests.",
+  "license": "MIT",
+  "author": "Kyndryl, Inc and contributors to the aiagent-portable-authorization project",
+  "homepage": "https://kyndryl-open-source.github.io/aiagent-portable-authorization/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kyndryl-open-source/aiagent-portable-authorization.git",
+    "directory": "extensions/a2a/receiver-middleware"
+  },
+  "bugs": {
+    "url": "https://github.com/kyndryl-open-source/aiagent-portable-authorization/issues"
+  },
+  "keywords": [
+    "portauth",
+    "a2a",
+    "agent-to-agent",
+    "authorization",
+    "verifiable-credentials",
+    "ai-agents",
+    "middleware"
+  ],
+  "main": "src/index.js",
+  "types": "src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    }
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "portauth-a2a": "^0.1.0"
+  }
+}

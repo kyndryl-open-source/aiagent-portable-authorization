@@ -1,0 +1,18 @@
+{
+  "name": "portauth-a2a-reference-presenter",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "description": "Reference A2A presenter that sends PortAuth-authorized bill-payment tasks.",
+  "main": "src/send-bill-payment.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "portauth-a2a": "file:../sdk"
+  },
+  "scripts": {
+    "allow": "node src/send-bill-payment.js allow",
+    "deny": "node src/send-bill-payment.js deny-amount"
+  }
+}

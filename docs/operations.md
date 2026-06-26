@@ -1,5 +1,10 @@
 # Operations
 
+> Running the A2A extension receiver? Its production runbook (secret handling,
+> rotation, `/ready` + `/metrics`, the `onEvent` stream, and stuck-pending
+> reconciliation) lives in [extensions/a2a/OPERATIONS.md](../extensions/a2a/OPERATIONS.md),
+> with TLS termination in [extensions/a2a/TLS.md](../extensions/a2a/TLS.md).
+
 ## Logging and observability
 
 PortAuth uses **Pino** for structured JSON logging. This allows the "story" of the authorization process to be traced step-by-step from issuance to enforcement.

@@ -4,6 +4,9 @@ node_modules/
 __pycache__/
 *.egg-info/
 
+# Local demo/marketing scratch (presentation + video workspace; not part of the codebase)
+docs/demo/
+
 # Environment
 .env
 .env.local

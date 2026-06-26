@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kyndryl-open-source.github.io/aiagent-portable-authorization/a2a/v1/metadata.schema.json",
+  "title": "PortAuth A2A message.metadata entries",
+  "type": "object",
+  "required": [
+    "https://kyndryl-open-source.github.io/aiagent-portable-authorization/a2a/v1/vc",
+    "https://kyndryl-open-source.github.io/aiagent-portable-authorization/a2a/v1/vcFormat",
+    "https://kyndryl-open-source.github.io/aiagent-portable-authorization/a2a/v1/presenterId"
+  ],
+  "properties": {
+    "https://kyndryl-open-source.github.io/aiagent-portable-authorization/a2a/v1/vc": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Compact JWS credential presented by the caller."
+    },
+    "https://kyndryl-open-source.github.io/aiagent-portable-authorization/a2a/v1/vcFormat": {
+      "type": "string",
+      "enum": ["tier1-jwt", "tier2-x509-jwt", "tier3-vc-jose"]
+    },
+    "https://kyndryl-open-source.github.io/aiagent-portable-authorization/a2a/v1/presenterId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "https://kyndryl-open-source.github.io/aiagent-portable-authorization/a2a/v1/proofOfPossession": {
+      "oneOf": [
+        { "type": "string", "minLength": 1 },
+        {
+          "type": "object",
+          "required": ["jws"],
+          "properties": {
+            "jws": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": true
+        }
+      ]
+    },
+    "https://kyndryl-open-source.github.io/aiagent-portable-authorization/a2a/v1/idempotencyKey": {
+      "type": "string",
+      "minLength": 1
+    },
+    "https://kyndryl-open-source.github.io/aiagent-portable-authorization/a2a/v1/delegationChain": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "additionalProperties": true
+}
