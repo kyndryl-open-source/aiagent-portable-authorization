@@ -84,7 +84,9 @@ export function parseExtensionHeader(value) {
 }
 
 export function extensionHeaderIncludes(value, uri = EXTENSION_URI) {
-  return parseExtensionHeader(value).includes(uri);
+  // Exact membership in the parsed header list (the value is split on "," first),
+  // not a substring/URL check — extension URIs are matched verbatim per A2A.
+  return parseExtensionHeader(value).some((item) => item === uri);
 }
 
 export function buildPortAuthMetadata({
