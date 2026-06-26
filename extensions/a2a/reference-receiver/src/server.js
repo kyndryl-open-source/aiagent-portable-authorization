@@ -187,9 +187,15 @@ export function isAuthorizedBearer(authHeader, expectedToken) {
   if (typeof expectedToken !== "string" || expectedToken.length === 0) return false;
   const header = firstHeader(authHeader);
   if (typeof header !== "string") return false;
-  const match = header.match(/^Bearer\s+(.+)$/i);
-  if (!match) return false;
-  const suppliedToken = match[1].trim();
+  // Parse "Bearer <token>" with linear string ops instead of /^Bearer\s+(.+)$/i.
+  // That regex has overlapping quantifiers (\s+ and .+ both match spaces), which
+  // CodeQL flags as polynomial ReDoS on the attacker-controlled Authorization
+  // header. Scheme name is case-insensitive (RFC 7235); require >=1 whitespace
+  // separator, then the trimmed remainder is the token.
+  if (header.slice(0, 6).toLowerCase() !== "bearer") return false;
+  const rest = header.slice(6);
+  if (!/^\s/.test(rest)) return false;
+  const suppliedToken = rest.trim();
   if (!suppliedToken) return false;
   return timingSafeStringEqual(suppliedToken, expectedToken);
 }
