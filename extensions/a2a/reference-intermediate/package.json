@@ -1,0 +1,15 @@
+{
+  "name": "portauth-a2a-reference-intermediate",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "description": "Reference A2A intermediate agent: authorizes an inbound request, mints an attenuated delegated credential, and forwards downstream (producer side of N-hop delegation).",
+  "main": "src/intermediate.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "portauth-a2a": "file:../sdk",
+    "portauth-a2a-receiver": "file:../receiver-middleware"
+  }
+}

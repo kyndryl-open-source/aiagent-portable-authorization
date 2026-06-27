@@ -43,6 +43,7 @@ runbook. Remaining items a deployment still owns:
 | [receiver-middleware/](receiver-middleware/) | `portauth-a2a-receiver` framework-neutral receiver guard that validates A2A requests and calls the PortAuth engine. |
 | [reference-receiver/](reference-receiver/) | Real A2A HTTP+JSON receiver exposing `/.well-known/agent-card.json`, `/message:send`, and task lookup. |
 | [reference-presenter/](reference-presenter/) | Real A2A presenter that discovers the receiver, obtains a credential, and sends authorized bill-payment tasks. |
+| [reference-intermediate/](reference-intermediate/) | Producer side of N-hop delegation: authorizes the inbound hop, mints an attenuated credential, and forwards downstream. Runnable demo: `npm run two-hop`. |
 | [schemas/](schemas/) | JSON Schemas for the Agent Card extension declaration and message metadata entries. |
 | [schemas/openapi.json](schemas/openapi.json) | OpenAPI 3.1 contract for the receiver's HTTP surface (also served at `GET /openapi.json`). |
 | [TLS.md](TLS.md) | Local nginx TLS reverse-proxy example with generated localhost certificate. |
@@ -53,8 +54,8 @@ runbook. Remaining items a deployment still owns:
 
 ## Packages
 
-Two packages are meant to be consumed from npm; two are runnable references that
-stay in-repo (`private`):
+Two packages are meant to be consumed from npm; the runnable references stay
+in-repo (`private`):
 
 | Package | Role | Published |
 |---|---|---|
@@ -62,6 +63,7 @@ stay in-repo (`private`):
 | `portauth-a2a-receiver` | Framework-neutral receiver guard | yes |
 | `portauth-a2a-reference-receiver` | Runnable reference receiver | no (`private`) |
 | `portauth-a2a-reference-presenter` | Runnable reference presenter | no (`private`) |
+| `portauth-a2a-reference-intermediate` | Runnable intermediate (N-hop producer side) | no (`private`) |
 
 To use the published packages in your own agent:
 
@@ -321,11 +323,3 @@ The reference flow:
 | 5 | Conformance tests under `tests/` and CI gating | done |
 | 6 | Publish-ready packages: metadata, semver dep ranges, `v1` wire freeze ([VERSIONING.md](VERSIONING.md)) | done |
 | 7 | Optional Google ADK adapter and Python receiver example | planned |
-
-## Related work
-
-The metadata-keyed A2A extension pattern was pioneered by the Identity
-Machines Iron Book extension (`https://github.com/identitymachines/a2a_ironbook`).
-This extension adopts the same A2A compliance recipe and differs in credential
-format, delegation semantics, and trust model. See SPEC.md §10 for a factual
-comparison.

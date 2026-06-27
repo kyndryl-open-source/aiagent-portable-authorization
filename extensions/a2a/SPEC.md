@@ -9,7 +9,7 @@ carried by, and evaluated within, a Google Agent2Agent (A2A) message flow.
 | Short name | `portauth-a2a/v1` |
 | Spec version | 1.0.0-draft.1 |
 | Engine compatibility | `aiagent-portable-authorization` v0.1.0 and later |
-| A2A spec compatibility | A2A 1.0 HTTP+JSON binding; 0.3.x migration notes retained where relevant |
+| A2A spec compatibility | Authored against A2A v1.0 (HTTP+JSON/REST and JSON-RPC bindings); 0.3.x migration notes retained where relevant. This spec references A2A by concept, not section number — A2A section numbering shifts across revisions. |
 | License | MIT |
 
 ## 1. Goals
@@ -68,8 +68,9 @@ and verify this manifest before sending.
 
 ### 2.2 Activation
 
-The caller MUST set the standard A2A extension service-parameter header (see
-A2A spec §3.2.6 and §14.2.2):
+The caller MUST set the standard A2A extension service-parameter header
+(the `A2A-Extensions` request header defined by A2A's extension-activation
+model):
 
 ```
 A2A-Extensions: https://kyndryl-open-source.github.io/aiagent-portable-authorization/a2a/v1
@@ -78,7 +79,11 @@ A2A-Extensions: https://kyndryl-open-source.github.io/aiagent-portable-authoriza
 Note: the header is `A2A-Extensions` (no `X-` prefix). On a successful response
 the receiver MUST echo the same header. Receivers MUST NOT skip evaluation
 based on the header's absence alone; they MUST also inspect `message.metadata`
-for any keys under the extension URI (see §8 item 5).
+for any keys under the extension URI (see §8 item 5). This metadata-inspection
+duty applies when the extension is **optional**. When the extension is
+**required**, a missing activation header is itself a rejection (HTTP 412,
+`PORTAUTH_EXTENSION_REQUIRED`) regardless of whether metadata is present — the
+receiver fails closed before inspecting metadata (see §3 item 1).
 
 ### 2.3 Data placement
 
@@ -125,8 +130,16 @@ not a relaxation of the spec.
 On receipt of an A2A request that carries the extension, the receiver MUST:
 
 1. Validate the `A2A-Extensions` request header against its own declaration.
-   If the extension is required but absent, return
-   `ExtensionSupportRequiredError` (A2A spec §3.3.2).
+   This is A2A's "extension support required" condition. When the receiver
+   runs the extension in **required** mode and the header does not activate it,
+   the request is rejected *before* any metadata is inspected — even if
+   `message.metadata` carries extension keys (fail closed). The reference
+   receiver encodes this rejection as **HTTP 412** with a `google.rpc.Status`
+   whose `ErrorInfo.reason` is `PORTAUTH_EXTENSION_REQUIRED` and whose
+   `metadata.extensionUri` names this extension. In **optional** mode the
+   missing header is not itself fatal: the receiver falls through to the
+   metadata check in §8 item 5 and still evaluates when extension metadata is
+   present.
 2. Read `<URI>/vc`, `<URI>/vcFormat`, and `<URI>/presenterId` from
    `message.metadata`. If any is missing, return A2A error `invalid_request`.
 3. Translate A2A request fields into a PortAuth `requestContext`:
@@ -206,15 +219,14 @@ The same pattern extends. Each intermediate receiver appends the inbound VC
 to `delegationChain` before issuing its own attenuated credential and
 forwarding. The engine's `verifyDelegationChain` is depth-agnostic.
 
-### 4.4 Two-decision pattern
+### 4.4 Single-call authorization
 
-Where Iron Book runs two separate policy decisions per handoff (requester
-role and executor role), PortAuth folds both into a single `/evaluate/batch`
-call: chain verification implicitly answers "was the requester allowed to
-delegate this?" and constraint + local policy evaluation answers "is the
-executor allowed to act?". The receiver therefore does ONE engine call per
-inbound A2A request regardless of chain depth, which is operationally
-simpler.
+A handoff raises two questions: "was the requester allowed to delegate this?"
+and "is the executor allowed to act?" PortAuth folds both into a single
+`/evaluate/batch` call: chain verification answers the first and constraint +
+local policy evaluation answers the second. The receiver therefore does ONE
+engine call per inbound A2A request regardless of chain depth, which is
+operationally simpler.
 
 ## 5. Caller preflight
 
@@ -323,7 +335,7 @@ Customer-side issuer (`POST /credentials/issue-vc`):
 
 ### 7.2 Customer's agent sends the A2A request to the bank intake
 
-Using the HTTP+JSON/REST binding (A2A spec §11):
+Using the A2A HTTP+JSON/REST binding:
 
 ```http
 POST /message:send HTTP/1.1
@@ -356,10 +368,10 @@ A2A-Version: 1.0
 }
 ```
 
-Using the JSON-RPC binding (A2A spec §9), the same payload is wrapped as
+Using the A2A JSON-RPC binding, the same payload is wrapped as
 `{"jsonrpc":"2.0","id":1,"method":"SendMessage","params": <body above>}` and
 POSTed to the JSON-RPC endpoint declared in the Agent Card. The `A2A-Extensions`
-and `A2A-Version` headers apply identically (A2A spec §9.2).
+and `A2A-Version` headers apply identically across both bindings.
 
 ### 7.3 Bank intake calls the engine
 
@@ -378,7 +390,7 @@ Host: portauth-engine.bank.example
     "requestId": "task-7d3c",
     "claimAmount": 2400,
     "currency": "USD",
-    "recipient": "utilities",
+    "recipientId": "utilities",
     "geoRegion": "US",
     "idempotencyKey": "bill-2026-06-electric"
   }
@@ -402,6 +414,19 @@ Engine response on allow:
 }
 ```
 
+The credential constrains **semantic identifiers** (`core.amount`,
+`core.recipient_id`, `core.geo_region`), while the receiver's `requestContext`
+carries **receiver-local fields** (`claimAmount`, `recipientId`, `geoRegion`).
+The engine's semantic-resolution layer (MVV `mvv-core` profile) maps each
+`core.*` identifier to its local field before evaluating — e.g.
+`core.recipient_id → recipientId` — so the two vocabularies never have to match
+verbatim. Resolution fails closed: an identifier with no mapped local value
+yields `context_field_missing` and the constraint denies. The reference
+`bill-payment-mapper.js` emits exactly these local field names, which is what
+makes this worked example evaluate `allow` end to end (asserted by
+`tests/worked-example.test.js`). `constraintResults` echo the credential's
+`core.*` identifiers, not the local field names.
+
 ### 7.4 Bank intake re-delegates to payments execution
 
 Intake issues an attenuated VC scoped to a single transfer, then makes an A2A
@@ -423,6 +448,15 @@ call to `did:web:bank.example:payments`:
 
 The outbound A2A call carries `<URI>/vc` = newly attenuated credential and
 `<URI>/delegationChain` = `[original customer VC]`.
+
+This producer side is runnable: `reference-intermediate/` ships
+`createIntermediateAgent`, which authorizes the inbound hop, mints the
+attenuated credential, and forwards downstream with the chain. The downstream
+engine re-verifies the whole chain and rejects any link that *widens*
+authority (`delegation_widened`). The contrast is exercised as a test
+(`tests/two-hop-delegation.test.js`) and as a no-dependencies demo
+(`npm run two-hop`): a narrowing delegate is allowed, a widening delegate is
+denied.
 
 ### 7.5 Payments execution calls the engine batch endpoint
 
@@ -490,26 +524,7 @@ will be documented as `1.x` revisions of this spec.
 
 ## 10. Relation to other work
 
-### 10.1 A2A Iron Book Extension (Identity Machines)
-
-Iron Book pioneered the metadata-keyed A2A extension pattern and the
-two-decision authorization framing. PortAuth's A2A extension adopts the same
-A2A compliance recipe (declaration, activation, data placement) and the same
-mental model. It differs in:
-
-- Credential format: real Verifiable Credentials (JWS-signed) instead of
-  one-shot bearer tokens.
-- Delegation: N-hop attenuation chains with restricted-glob verification
-  instead of a fixed two-role pattern.
-- Trust: self-hosted governance manifests with versioned vocabulary instead
-  of a SaaS registry.
-- Hosting: drop-in OSS engine, no API key, no third-party dependency.
-
-Both extensions are intentionally interoperable at the A2A layer: a receiver
-can declare both, and a caller can satisfy whichever the receiver
-prefers.
-
-### 10.2 OAuth 2.0 bearer tokens
+### 10.1 OAuth 2.0 bearer tokens
 
 OAuth bearer tokens carry no typed bounds and no delegation context. PortAuth
 VCs do, which is what enables the per-action evaluation in §3 and the
@@ -535,6 +550,10 @@ Formal JSON Schemas are provided in this repository:
   `/.well-known/agent-card.json`, `/message:send`, and task lookup endpoints.
 - `extensions/a2a/reference-presenter/` discovers the receiver Agent Card,
   obtains a credential, and sends allow/deny bill-payment scenarios.
+- `extensions/a2a/reference-intermediate/` is the producer side of N-hop
+  delegation: `createIntermediateAgent` authorizes the inbound hop, mints an
+  attenuated credential, and forwards downstream (`npm run two-hop` demo).
 - `extensions/a2a/tests/` contains conformance checks for metadata, Agent Card
-  declaration, header activation, allow/deny mapping, and delegation routing.
+  declaration, header activation, allow/deny mapping, and delegation routing
+  (including the two-hop narrow-vs-widen contrast).
 - `extensions/a2a/poc/` is retained as the compact single-process smoke demo.

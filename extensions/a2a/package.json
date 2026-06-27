@@ -5,7 +5,8 @@
     "sdk",
     "receiver-middleware",
     "reference-receiver",
-    "reference-presenter"
+    "reference-presenter",
+    "reference-intermediate"
   ],
   "devDependencies": {
     "pg": "^8.13.0"
@@ -14,6 +15,7 @@
     "install:local": "npm install",
     "test": "node --test tests/*.test.js",
     "receiver": "node reference-receiver/src/server.js",
+    "two-hop": "node reference-intermediate/src/demo-two-hop.js",
     "presenter": "node reference-presenter/src/send-bill-payment.js",
     "allow": "node reference-presenter/src/send-bill-payment.js allow",
     "deny": "node reference-presenter/src/send-bill-payment.js deny-amount",
