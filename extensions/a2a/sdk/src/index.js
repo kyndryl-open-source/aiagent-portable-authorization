@@ -342,6 +342,32 @@ function b64uToBytes(value) {
   return new Uint8Array(Buffer.from(value, "base64url"));
 }
 
+function b64uToText(value) {
+  return new TextDecoder("utf-8", { fatal: true }).decode(b64uToBytes(value));
+}
+
+function stripProof(manifest = {}) {
+  const { proof, ...unsignedManifest } = manifest;
+  return unsignedManifest;
+}
+
+function canonicalJson(value) {
+  if (value === null) return "null";
+  if (value === undefined) return undefined;
+  if (typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item) ?? "null").join(",")}]`;
+
+  return `{${Object.keys(value)
+    .filter((key) => value[key] !== undefined)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+    .join(",")}}`;
+}
+
+function governanceManifestSigningPayload(manifest) {
+  return canonicalJson(stripProof(manifest));
+}
+
 async function verifyCompactJwsWithJwks(jws, jwks) {
   const parts = String(jws).split(".");
   if (parts.length !== 3) {
@@ -353,6 +379,11 @@ async function verifyCompactJwsWithJwks(jws, jwks) {
     header = JSON.parse(Buffer.from(protectedB64, "base64url").toString("utf8"));
   } catch {
     return { ok: false, error: "manifest proof.jws protected header is not valid JSON" };
+  }
+  if (header.b64 === false) {
+    throw new ManifestVerificationUnavailableError(
+      "manifest proof.jws uses b64:false, which this verifier does not support",
+    );
   }
   const spec = WEBCRYPTO_JWS_ALGS.get(header.alg);
   if (!spec) {
@@ -371,7 +402,7 @@ async function verifyCompactJwsWithJwks(jws, jwks) {
     try {
       const key = await globalThis.crypto.subtle.importKey("jwk", jwk, spec.imp, false, ["verify"]);
       if (await globalThis.crypto.subtle.verify(spec.ver, key, signature, data)) {
-        return { ok: true, alg: header.alg, kid: jwk.kid };
+        return { ok: true, alg: header.alg, kid: jwk.kid, payload: b64uToText(payloadB64) };
       }
     } catch {
       // Key didn't import or didn't match this signature; try the next one.
@@ -406,7 +437,14 @@ async function verifyGovernanceManifest(manifest, { fetchImpl, signingKeyUrl }) 
   if (!resp.ok) return { ok: false, error: `signer JWKS fetch failed: ${resp.status}` };
   const jwks = await resp.json();
   if (!jwks?.keys?.length) return { ok: false, error: "signer JWKS contains no keys" };
-  return verifyCompactJwsWithJwks(manifest.proof.jws, jwks);
+  const verification = await verifyCompactJwsWithJwks(manifest.proof.jws, jwks);
+  if (!verification.ok) return verification;
+
+  const expectedPayload = governanceManifestSigningPayload(manifest);
+  if (verification.payload !== expectedPayload) {
+    return { ok: false, error: "manifest proof payload does not match the fetched manifest" };
+  }
+  return verification;
 }
 
 function decodeCredential(credential) {

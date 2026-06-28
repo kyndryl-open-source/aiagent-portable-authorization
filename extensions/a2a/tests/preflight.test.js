@@ -49,23 +49,64 @@ function response(status, body) {
   return { ok: status >= 200 && status < 300, status, json: async () => body, text: async () => JSON.stringify(body) };
 }
 
-// A manifest the shared tier1-jwt credential is compatible with.
-function compatibleManifest() {
-  return { credentialProfiles: [{ id: "tier1-jwt" }], constraintTypes: [], requiredContextFields: ["action"] };
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
 }
 
-// Sign a manifest's proof exactly the way the state authority does: ES256
-// compact JWS over the proof payload, using WebCrypto (no jose).
+function stripProof(manifest = {}) {
+  const { proof, ...unsignedManifest } = manifest;
+  return unsignedManifest;
+}
+
+function canonicalJson(value) {
+  if (value === null) return "null";
+  if (value === undefined) return undefined;
+  if (typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item) ?? "null").join(",")}]`;
+
+  return `{${Object.keys(value)
+    .filter((key) => value[key] !== undefined)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+    .join(",")}}`;
+}
+
+function governanceManifestSigningPayload(manifest) {
+  return canonicalJson(stripProof(manifest));
+}
+
+// A manifest the shared tier1-jwt credential is compatible with.
+function compatibleManifest() {
+  return {
+    version: "0.1.0",
+    profile: "portable-authorization-reference",
+    credentialProfiles: [{ id: "tier1-jwt", algorithms: ["ES256"] }],
+    constraintTypes: [],
+    requiredContextFields: ["action"],
+  };
+}
+
+// Sign the same payload the engine signs: canonical manifest JSON with `proof`
+// removed. The signature itself is produced with WebCrypto so this test has no
+// jose dependency.
 async function signManifest(manifest, { privateKey, kid }) {
   const protectedHeader = jsonB64u({ alg: "ES256", kid });
-  const payload = jsonB64u({ iss: "governance-authority", iat: 1700000000 });
+  const payload = Buffer.from(governanceManifestSigningPayload(manifest)).toString("base64url");
   const signingInput = `${protectedHeader}.${payload}`;
   const sig = await crypto.subtle.sign(
     { name: "ECDSA", hash: "SHA-256" },
     privateKey,
     new TextEncoder().encode(signingInput),
   );
-  return { ...manifest, proof: { jws: `${signingInput}.${b64u(new Uint8Array(sig))}` } };
+  return {
+    ...manifest,
+    proof: {
+      type: "JsonWebSignature2020",
+      created: "2026-06-28T00:00:00.000Z",
+      verificationMethod: kid,
+      jws: `${signingInput}.${b64u(new Uint8Array(sig))}`,
+    },
+  };
 }
 
 async function makeSigner(kid = "gov-key-1") {
@@ -102,6 +143,106 @@ describe("preflight() manifest verification (inlined, WebCrypto)", () => {
     assert.equal(result.manifestVerified, true);
     assert.equal(result.compatible, true);
     assert.deepEqual(result.incompatibilities, []);
+  });
+
+  it("accepts a signed manifest even when object keys are reordered", async () => {
+    const signer = await makeSigner();
+    const manifest = await signManifest(compatibleManifest(), signer);
+    const reordered = {
+      constraintTypes: manifest.constraintTypes,
+      requiredContextFields: manifest.requiredContextFields,
+      credentialProfiles: manifest.credentialProfiles,
+      profile: manifest.profile,
+      version: manifest.version,
+      proof: manifest.proof,
+    };
+    const fetchImpl = makeFetch({ manifest: reordered, jwks: signer.jwks });
+
+    const result = await preflight(RECEIVER_URL, credential, requestContext, {
+      fetchImpl,
+      verifyManifest: true,
+      signingKeyUrl: JWKS_URL,
+    });
+
+    assert.equal(result.manifestVerified, true);
+    assert.equal(result.compatible, true);
+  });
+
+  it("ignores proof metadata changes because the proof field is not part of the signed manifest payload", async () => {
+    const signer = await makeSigner();
+    const manifest = await signManifest(compatibleManifest(), signer);
+    const changedProofMetadata = {
+      ...manifest,
+      proof: {
+        ...manifest.proof,
+        created: "2026-06-29T00:00:00.000Z",
+        verificationMethod: "renamed-out-of-band",
+      },
+    };
+    const fetchImpl = makeFetch({ manifest: changedProofMetadata, jwks: signer.jwks });
+
+    const result = await preflight(RECEIVER_URL, credential, requestContext, {
+      fetchImpl,
+      verifyManifest: true,
+      signingKeyUrl: JWKS_URL,
+    });
+
+    assert.equal(result.manifestVerified, true);
+    assert.equal(result.compatible, true);
+  });
+
+  it("rejects top-level manifest tampering even when proof.jws has a valid signature", async () => {
+    const signer = await makeSigner();
+    const manifest = await signManifest(compatibleManifest(), signer);
+    const tampered = { ...manifest, profile: "tampered-profile" };
+    const fetchImpl = makeFetch({ manifest: tampered, jwks: signer.jwks });
+
+    const result = await preflight(RECEIVER_URL, credential, requestContext, {
+      fetchImpl,
+      verifyManifest: true,
+      signingKeyUrl: JWKS_URL,
+    });
+
+    assert.equal(result.manifestVerified, false);
+    assert.equal(result.compatible, false);
+    assert.equal(result.incompatibilities[0].rule, "manifestSignature");
+    assert.match(result.incompatibilities[0].detail, /payload does not match/);
+  });
+
+  it("rejects nested manifest tampering before compatibility rules use the tampered value", async () => {
+    const signer = await makeSigner();
+    const manifest = await signManifest(compatibleManifest(), signer);
+    const tampered = clone(manifest);
+    tampered.credentialProfiles[0].id = "tier3-vc-jose";
+    const fetchImpl = makeFetch({ manifest: tampered, jwks: signer.jwks });
+
+    const result = await preflight(RECEIVER_URL, credential, requestContext, {
+      fetchImpl,
+      verifyManifest: true,
+      signingKeyUrl: JWKS_URL,
+    });
+
+    assert.equal(result.manifestVerified, false);
+    assert.equal(result.compatible, false);
+    assert.equal(result.incompatibilities[0].rule, "manifestSignature");
+  });
+
+  it("rejects array tampering before compatibility rules use the tampered value", async () => {
+    const signer = await makeSigner();
+    const manifest = await signManifest(compatibleManifest(), signer);
+    const tampered = clone(manifest);
+    tampered.requiredContextFields.push("resource");
+    const fetchImpl = makeFetch({ manifest: tampered, jwks: signer.jwks });
+
+    const result = await preflight(RECEIVER_URL, credential, requestContext, {
+      fetchImpl,
+      verifyManifest: true,
+      signingKeyUrl: JWKS_URL,
+    });
+
+    assert.equal(result.manifestVerified, false);
+    assert.equal(result.compatible, false);
+    assert.equal(result.incompatibilities[0].rule, "manifestSignature");
   });
 
   it("does NOT pass when the signature was made by a different key (no silent pass)", async () => {
@@ -166,6 +307,18 @@ describe("preflight() manifest verification (inlined, WebCrypto)", () => {
     // cannot verify. The signature bytes are irrelevant: the alg is rejected
     // before any key is tried.
     const jws = `${jsonB64u({ alg: "ES256K", kid: "x" })}.${jsonB64u({ iss: "x" })}.${b64u(new Uint8Array([1, 2, 3]))}`;
+    const manifest = { ...compatibleManifest(), proof: { jws } };
+    const fetchImpl = makeFetch({ manifest, jwks: signer.jwks });
+
+    await assert.rejects(
+      preflight(RECEIVER_URL, credential, requestContext, { fetchImpl, verifyManifest: true, signingKeyUrl: JWKS_URL }),
+      ManifestVerificationUnavailableError,
+    );
+  });
+
+  it("HARD-errors on unsupported compact JWS b64:false payloads", async () => {
+    const signer = await makeSigner();
+    const jws = `${jsonB64u({ alg: "ES256", kid: "x", b64: false, crit: ["b64"] })}.payload.${b64u(new Uint8Array([1, 2, 3]))}`;
     const manifest = { ...compatibleManifest(), proof: { jws } };
     const fetchImpl = makeFetch({ manifest, jwks: signer.jwks });
 

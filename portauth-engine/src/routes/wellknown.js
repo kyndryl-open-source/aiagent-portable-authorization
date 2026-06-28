@@ -26,6 +26,26 @@ export function clearGovernanceManifestCache() {
   cachedRevision = -1;
 }
 
+export function stripProof(manifest = {}) {
+  const { proof, ...unsignedManifest } = manifest;
+  return unsignedManifest;
+}
+
+export function canonicalJson(value) {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+
+  return `{${Object.keys(value)
+    .filter((key) => value[key] !== undefined)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+    .join(",")}}`;
+}
+
+export function governanceManifestSigningPayload(manifest) {
+  return canonicalJson(stripProof(manifest));
+}
+
 /**
  * /.well-known/agent-governance
  *
@@ -204,7 +224,7 @@ router.get("/agent-governance", async (_req, res) => {
 
     // Sign the manifest
     const { privateKey, publicJwk, kid } = await getOrCreateEngineSigningKey("governance-manifest");
-    const payload = JSON.stringify(manifest, Object.keys(manifest).sort());
+    const payload = governanceManifestSigningPayload(manifest);
     const signature = await new jose.CompactSign(new TextEncoder().encode(payload))
       .setProtectedHeader({ alg: "ES256", kid })
       .sign(privateKey);
