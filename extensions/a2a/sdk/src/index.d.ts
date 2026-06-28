@@ -89,7 +89,42 @@ export function buildA2aSendMessageRequest(input: {
 export function getPortAuthExtension(agentCard?: Record<string, unknown>, uri?: string): Record<string, unknown> | null;
 export function selectHttpJsonInterface(agentCard?: Record<string, unknown>): Record<string, unknown> | null;
 export function fetchAgentCard(agentBaseUrl: string, options?: { fetchImpl?: FetchLike }): Promise<Record<string, unknown>>;
-export function preflight(agentCardUrl: string, vc: string, intendedAction?: Record<string, unknown>, options?: Record<string, unknown>): Promise<Record<string, unknown>>;
+export interface PreflightIncompatibility {
+  rule: string;
+  severity: "error" | "warning";
+  detail: string;
+}
+export interface PreflightOptions {
+  /**
+   * When true (default) the governance manifest MUST be cryptographically
+   * verified; if it cannot be (no signingKeyUrl, unsupported alg, no WebCrypto)
+   * preflight throws ManifestVerificationUnavailableError. Pass false to run an
+   * explicit UNSIGNED, compatibility-only preflight.
+   */
+  verifyManifest?: boolean;
+  /** JWKS URL of the manifest signer (required when verifyManifest is true). */
+  signingKeyUrl?: string;
+  fetchImpl?: FetchLike;
+  /** Pre-fetched Agent Card (skips the fetch). */
+  agentCard?: Record<string, unknown>;
+  /** Pre-fetched governance manifest (skips the fetch). */
+  manifest?: Record<string, unknown>;
+}
+export interface PreflightResult {
+  compatible: boolean;
+  /** True only when the manifest signature was actually checked and passed. */
+  manifestVerified: boolean;
+  incompatibilities: PreflightIncompatibility[];
+  agentCard: Record<string, unknown>;
+  extension: Record<string, unknown> | null;
+  manifestUrl?: string;
+}
+/**
+ * Thrown when manifest verification is requested but cannot be performed (no
+ * signing key, an algorithm WebCrypto cannot check, or WebCrypto unavailable).
+ */
+export class ManifestVerificationUnavailableError extends Error {}
+export function preflight(agentCardUrl: string, vc: string, intendedAction?: Record<string, unknown>, options?: PreflightOptions): Promise<PreflightResult>;
 export function sendWithVc(options: SendWithVcOptions): Promise<{ ok: boolean; status: number; body: unknown; agentCard: Record<string, unknown> }>;
 export function buildGoogleRpcStatus(input?: Record<string, unknown>): Record<string, unknown>;
 export function mapEngineDecisionToA2aError(engineBody?: Record<string, unknown>, fallbackStatus?: number): { httpStatus: number; body: Record<string, unknown> };

@@ -124,26 +124,33 @@ describe("PortAuth A2A SDK metadata helpers", () => {
     assert.equal(card.capabilities.extensions[0].required, true);
   });
 
-  it("runs preflight through the governance manifest from the Agent Card", async () => {
+  it("runs an explicit unsigned preflight through the governance manifest from the Agent Card", async () => {
     const card = buildPortAuthAgentCard({
       url: "http://receiver.test",
       governanceManifestUrl: "http://engine.test/.well-known/agent-governance",
     });
+    // A manifest the shared tier1-jwt credential is compatible with.
+    const manifest = {
+      credentialProfiles: [{ id: "tier1-jwt" }],
+      constraintTypes: [],
+      requiredContextFields: ["action"],
+    };
+    const fetchImpl = async (url) => {
+      const u = String(url);
+      if (u.endsWith("/.well-known/agent-card.json")) return response(200, card);
+      if (u.endsWith("/.well-known/agent-governance")) return response(200, manifest);
+      throw new Error(`unexpected fetch: ${u}`);
+    };
+
+    // verifyManifest:false is the explicit opt-in to a compatibility-only check.
     const result = await preflight("http://receiver.test", credential, requestContext, {
-      fetchImpl: async () => response(200, card),
-      preflightModule: {
-        preflightCheck: async (input) => ({
-          compatible: true,
-          incompatibilities: [],
-          observedManifestUrl: input.manifestUrl,
-          observedRequestContext: input.requestContext,
-        }),
-      },
+      fetchImpl,
+      verifyManifest: false,
     });
     assert.equal(result.compatible, true);
+    assert.equal(result.manifestVerified, false);
     assert.equal(result.manifestUrl, "http://engine.test/.well-known/agent-governance");
-    assert.equal(result.observedManifestUrl, "http://engine.test/.well-known/agent-governance");
-    assert.equal(result.observedRequestContext.action, "payments:bill_pay");
+    assert.deepEqual(result.incompatibilities, []);
   });
 });
 
