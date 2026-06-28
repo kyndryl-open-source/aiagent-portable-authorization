@@ -289,73 +289,365 @@ export async function sendWithVc({
   return { ok: resp.ok, status: resp.status, body: payload, agentCard: card };
 }
 
+// ---------------------------------------------------------------------------
+// Governance-manifest preflight (self-contained; no cross-package import)
+//
+// A published `portauth-a2a` tarball must run on its own. This function used to
+// dynamically import a sibling preflight package that only exists inside the
+// monorepo, so once installed from npm `preflight()` threw ERR_MODULE_NOT_FOUND.
+// The compatibility rules and manifest-signature verification are inlined below
+// so the packed package works by itself.
+//
+// Signature verification uses Node's built-in WebCrypto (`crypto.subtle`) for
+// the standard asymmetric JWS algorithms, keeping the package dependency-free.
+// For an algorithm WebCrypto cannot check (e.g. ES256K / secp256k1) it fails
+// HARD instead of silently passing -- preflight() must never look like it
+// verified a signed manifest when it actually did not.
+// ---------------------------------------------------------------------------
+
+const SEMANTIC_PREFIXES = ["core.", "insurance.", "aerospace.", "supply_chain."];
+
+// JWS `alg` -> WebCrypto import + verify parameters. Only algorithms Node's
+// WebCrypto verifies natively appear here; anything else is a hard error.
+// JWS ECDSA signatures are raw r||s (IEEE P1363), which is exactly the format
+// WebCrypto's ECDSA verify expects -- no DER conversion required.
+const WEBCRYPTO_JWS_ALGS = new Map([
+  ["ES256", { imp: { name: "ECDSA", namedCurve: "P-256" }, ver: { name: "ECDSA", hash: "SHA-256" } }],
+  ["ES384", { imp: { name: "ECDSA", namedCurve: "P-384" }, ver: { name: "ECDSA", hash: "SHA-384" } }],
+  ["ES512", { imp: { name: "ECDSA", namedCurve: "P-521" }, ver: { name: "ECDSA", hash: "SHA-512" } }],
+  ["RS256", { imp: { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, ver: { name: "RSASSA-PKCS1-v1_5" } }],
+  ["RS384", { imp: { name: "RSASSA-PKCS1-v1_5", hash: "SHA-384" }, ver: { name: "RSASSA-PKCS1-v1_5" } }],
+  ["RS512", { imp: { name: "RSASSA-PKCS1-v1_5", hash: "SHA-512" }, ver: { name: "RSASSA-PKCS1-v1_5" } }],
+  ["PS256", { imp: { name: "RSA-PSS", hash: "SHA-256" }, ver: { name: "RSA-PSS", saltLength: 32 } }],
+  ["PS384", { imp: { name: "RSA-PSS", hash: "SHA-384" }, ver: { name: "RSA-PSS", saltLength: 48 } }],
+  ["PS512", { imp: { name: "RSA-PSS", hash: "SHA-512" }, ver: { name: "RSA-PSS", saltLength: 64 } }],
+  ["EdDSA", { imp: { name: "Ed25519" }, ver: { name: "Ed25519" } }],
+]);
+
+/**
+ * Raised when manifest verification was REQUESTED but cannot be performed at
+ * all (no signing key, an algorithm WebCrypto cannot check, or WebCrypto
+ * unavailable). It is deliberately a thrown error -- not a soft "incompatible"
+ * result -- so a caller that asked for a verified manifest can never mistake an
+ * un-performed check for a passing one.
+ */
+export class ManifestVerificationUnavailableError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "ManifestVerificationUnavailableError";
+  }
+}
+
+function b64uToBytes(value) {
+  return new Uint8Array(Buffer.from(value, "base64url"));
+}
+
+function b64uToText(value) {
+  return new TextDecoder("utf-8", { fatal: true }).decode(b64uToBytes(value));
+}
+
+function stripProof(manifest = {}) {
+  const { proof, ...unsignedManifest } = manifest;
+  return unsignedManifest;
+}
+
+function canonicalJson(value) {
+  if (value === null) return "null";
+  if (value === undefined) return undefined;
+  if (typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item) ?? "null").join(",")}]`;
+
+  return `{${Object.keys(value)
+    .filter((key) => value[key] !== undefined)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+    .join(",")}}`;
+}
+
+function governanceManifestSigningPayload(manifest) {
+  return canonicalJson(stripProof(manifest));
+}
+
+async function verifyCompactJwsWithJwks(jws, jwks) {
+  const parts = String(jws).split(".");
+  if (parts.length !== 3) {
+    return { ok: false, error: "manifest proof.jws is not a compact JWS" };
+  }
+  const [protectedB64, payloadB64, sigB64] = parts;
+  let header;
+  try {
+    header = JSON.parse(Buffer.from(protectedB64, "base64url").toString("utf8"));
+  } catch {
+    return { ok: false, error: "manifest proof.jws protected header is not valid JSON" };
+  }
+  if (header.b64 === false) {
+    throw new ManifestVerificationUnavailableError(
+      "manifest proof.jws uses b64:false, which this verifier does not support",
+    );
+  }
+  const spec = WEBCRYPTO_JWS_ALGS.get(header.alg);
+  if (!spec) {
+    // Cannot verify this algorithm -> hard error, never a silent pass.
+    throw new ManifestVerificationUnavailableError(
+      `manifest is signed with '${header.alg || "unknown"}', which this verifier cannot check via WebCrypto`,
+    );
+  }
+  const candidates = (jwks.keys || []).filter((k) => (header.kid && k.kid ? k.kid === header.kid : true));
+  if (candidates.length === 0) {
+    return { ok: false, error: "no key in the signer JWKS matches the manifest proof header" };
+  }
+  const data = new TextEncoder().encode(`${protectedB64}.${payloadB64}`);
+  const signature = b64uToBytes(sigB64);
+  for (const jwk of candidates) {
+    try {
+      const key = await globalThis.crypto.subtle.importKey("jwk", jwk, spec.imp, false, ["verify"]);
+      if (await globalThis.crypto.subtle.verify(spec.ver, key, signature, data)) {
+        return { ok: true, alg: header.alg, kid: jwk.kid, payload: b64uToText(payloadB64) };
+      }
+    } catch {
+      // Key didn't import or didn't match this signature; try the next one.
+    }
+  }
+  return { ok: false, error: "manifest signature did not verify against any signer key" };
+}
+
+/**
+ * Verify a signed governance manifest.
+ *
+ * Throws `ManifestVerificationUnavailableError` when verification cannot even be
+ * attempted (no signingKeyUrl, no WebCrypto, unsupported alg). Returns
+ * `{ ok:false, error }` when it WAS attempted and the signature is
+ * missing/invalid. Returns `{ ok:true }` only on a real cryptographic pass.
+ */
+async function verifyGovernanceManifest(manifest, { fetchImpl, signingKeyUrl }) {
+  if (!signingKeyUrl) {
+    throw new ManifestVerificationUnavailableError(
+      "verifyManifest is true but no signingKeyUrl was provided to fetch the manifest signer's JWKS",
+    );
+  }
+  if (!globalThis.crypto?.subtle) {
+    throw new ManifestVerificationUnavailableError(
+      "WebCrypto (globalThis.crypto.subtle) is unavailable; cannot verify the manifest signature",
+    );
+  }
+  if (!manifest?.proof?.jws) {
+    return { ok: false, error: "manifest has no proof.jws to verify" };
+  }
+  const resp = await fetchImpl(signingKeyUrl, { headers: { Accept: "application/json" } });
+  if (!resp.ok) return { ok: false, error: `signer JWKS fetch failed: ${resp.status}` };
+  const jwks = await resp.json();
+  if (!jwks?.keys?.length) return { ok: false, error: "signer JWKS contains no keys" };
+  const verification = await verifyCompactJwsWithJwks(manifest.proof.jws, jwks);
+  if (!verification.ok) return verification;
+
+  const expectedPayload = governanceManifestSigningPayload(manifest);
+  if (verification.payload !== expectedPayload) {
+    return { ok: false, error: "manifest proof payload does not match the fetched manifest" };
+  }
+  return verification;
+}
+
+function decodeCredential(credential) {
+  const parts = String(credential).split(".");
+  if (parts.length !== 3) throw new Error("credential is not a compact JWS");
+  const header = JSON.parse(Buffer.from(parts[0], "base64url").toString("utf8"));
+  const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
+  return { header, payload };
+}
+
+function detectProfile(header, payload) {
+  if (Array.isArray(header.x5c) && header.x5c.length > 0) return "tier2-x509-jwt";
+  if (typeof payload.iss === "string" && payload.iss.startsWith("did:")) return "tier3-vc-jose";
+  if (payload.vc && typeof payload.vc === "object") return "tier3-vc-jose";
+  return "tier1-jwt";
+}
+
+function collectConstraintTypes(payload) {
+  const constraints = payload.constraints || payload.termsOfUse || [];
+  return [...new Set(constraints.map((c) => c.type).filter(Boolean))];
+}
+
+function collectVocabularyFields(payload) {
+  const constraints = payload.constraints || payload.termsOfUse || [];
+  const fields = new Set();
+  for (const c of constraints) {
+    if (typeof c.field === "string" && SEMANTIC_PREFIXES.some((p) => c.field.startsWith(p))) {
+      fields.add(c.field);
+    }
+  }
+  return [...fields];
+}
+
+function checkProfile(profile, manifest) {
+  const supported = (manifest.credentialProfiles || []).map((p) => p.id);
+  if (!supported.includes(profile)) {
+    return { rule: "profileMatch", severity: "error", detail: `credential profile ${profile} not in manifest.credentialProfiles` };
+  }
+  return null;
+}
+
+function checkConstraintTypes(types, manifest) {
+  const supported = new Set(manifest.constraintTypes || []);
+  const missing = types.filter((t) => !supported.has(t));
+  if (missing.length > 0) {
+    return { rule: "constraintTypes", severity: "error", detail: `unsupported constraint types: ${missing.join(", ")}` };
+  }
+  return null;
+}
+
+function checkVocabulary(fields, manifest) {
+  const all = new Set();
+  const recognized = manifest.recognizedFields || {};
+  for (const key of Object.keys(recognized)) {
+    for (const f of recognized[key] || []) all.add(f);
+  }
+  for (const profile of manifest.mappingProfiles || []) {
+    for (const f of Object.keys(profile.fields || {})) all.add(f);
+  }
+  const missing = fields.filter((f) => !all.has(f));
+  if (missing.length > 0) {
+    return { rule: "vocabulary", severity: "error", detail: `unrecognized vocabulary fields: ${missing.join(", ")}` };
+  }
+  return null;
+}
+
+function checkTrustAnchors(profile, issuer, manifest) {
+  const anchors = manifest.acceptedTrustAnchors || {};
+  const tierKey = profile === "tier1-jwt" ? "tier1" : profile === "tier3-vc-jose" ? "tier3" : null;
+  if (tierKey) {
+    const known = (anchors[tierKey]?.trustedIssuers || []).map((t) => t.issuerId);
+    if (known.length > 0 && !known.includes(issuer)) {
+      return { rule: "trustAnchors", severity: "warning", detail: `issuer ${issuer} not pre-registered as ${tierKey} trust anchor` };
+    }
+  }
+  return null;
+}
+
+function checkRequiredContextFields(required, supplied) {
+  const missing = (required || []).filter((f) => !supplied || !(f in supplied));
+  if (missing.length > 0) {
+    return { rule: "requiredContextFields", severity: "error", detail: `requestContext missing required fields: ${missing.join(", ")}` };
+  }
+  return null;
+}
+
+async function fetchManifest(manifestUrl, { fetchImpl = globalThis.fetch } = {}) {
+  const resp = await fetchImpl(manifestUrl, { headers: { Accept: "application/json" } });
+  if (!resp.ok) throw new Error(`manifest fetch failed: ${resp.status}`);
+  return await resp.json();
+}
+
+// The five compatibility rules. Signature verification is handled separately by
+// preflight() so that "is this credential compatible" and "is the manifest
+// authentic" stay distinguishable in the result.
+function runCompatibilityRules({ manifest, credential, requestContext }) {
+  const { header, payload } = decodeCredential(credential);
+  const profile = detectProfile(header, payload);
+  const incompatibilities = [
+    checkProfile(profile, manifest),
+    checkConstraintTypes(collectConstraintTypes(payload), manifest),
+    checkVocabulary(collectVocabularyFields(payload), manifest),
+    checkTrustAnchors(profile, payload.iss, manifest),
+    checkRequiredContextFields(manifest.requiredContextFields, requestContext),
+  ].filter(Boolean);
+  const errorCount = incompatibilities.filter((i) => i.severity === "error").length;
+  return { compatible: errorCount === 0, incompatibilities, profile };
+}
+
+/**
+ * Preflight a PortAuth A2A receiver before sending a credential.
+ *
+ * Fetches the receiver's Agent Card, confirms it advertises the PortAuth
+ * extension and a governance manifest, optionally verifies the manifest's
+ * signature, then runs the credential past the manifest's compatibility rules.
+ *
+ * @param {string} agentCardUrl    receiver base URL (or pass options.agentCard)
+ * @param {string} vc              the credential (compact JWS) to be sent
+ * @param {object} intendedAction  request context, or `{ requestContext }`
+ * @param {object} [options]
+ * @param {boolean} [options.verifyManifest=true]  when true the manifest MUST be
+ *   cryptographically verified; if it cannot be (no signingKeyUrl, unsupported
+ *   alg, no WebCrypto) this THROWS rather than returning an unverified pass.
+ *   Pass `false` to explicitly run an UNSIGNED, compatibility-only preflight.
+ * @param {string} [options.signingKeyUrl]  JWKS URL of the manifest signer.
+ * @param {function} [options.fetchImpl=globalThis.fetch]
+ * @param {object} [options.agentCard]  pre-fetched Agent Card (skips the fetch).
+ * @param {object} [options.manifest]   pre-fetched manifest (skips the fetch).
+ * @returns {Promise<object>} `{ compatible, manifestVerified, incompatibilities,
+ *   agentCard, extension, manifestUrl }`. `manifestVerified` is true only when
+ *   the signature was actually checked and passed.
+ * @throws {ManifestVerificationUnavailableError} when `verifyManifest` is true
+ *   but verification cannot be performed.
+ */
 export async function preflight(agentCardUrl, vc, intendedAction = {}, options = {}) {
   const {
     agentCard,
     fetchImpl = globalThis.fetch,
-    preflightModule,
     signingKeyUrl,
-    verifyManifest: shouldVerifyManifest = Boolean(signingKeyUrl),
+    verifyManifest = true,
+    manifest: providedManifest,
   } = options;
+
   const card = agentCard || await fetchAgentCard(agentCardUrl, { fetchImpl });
   const extension = getPortAuthExtension(card);
   if (!extension) {
     return {
       compatible: false,
+      manifestVerified: false,
       agentCard: card,
       extension: null,
-      incompatibilities: [
-        {
-          rule: "a2aExtension",
-          severity: "error",
-          detail: `receiver does not advertise ${EXTENSION_URI}`,
-        },
-      ],
+      incompatibilities: [{ rule: "a2aExtension", severity: "error", detail: `receiver does not advertise ${EXTENSION_URI}` }],
     };
   }
   if (extension.required && (typeof vc !== "string" || vc.length === 0)) {
     return {
       compatible: false,
+      manifestVerified: false,
       agentCard: card,
       extension,
-      incompatibilities: [
-        {
-          rule: "credentialRequired",
-          severity: "error",
-          detail: "receiver requires the PortAuth A2A extension but no credential was supplied",
-        },
-      ],
+      incompatibilities: [{ rule: "credentialRequired", severity: "error", detail: "receiver requires the PortAuth A2A extension but no credential was supplied" }],
     };
   }
 
   const manifestUrl = extension.params?.governanceManifestUrl;
-  if (!manifestUrl) {
+  if (!manifestUrl && !providedManifest) {
     return {
       compatible: false,
+      manifestVerified: false,
       agentCard: card,
       extension,
-      incompatibilities: [
-        {
-          rule: "governanceManifest",
-          severity: "error",
-          detail: "PortAuth Agent Card extension is missing params.governanceManifestUrl",
-        },
-      ],
+      incompatibilities: [{ rule: "governanceManifest", severity: "error", detail: "PortAuth Agent Card extension is missing params.governanceManifestUrl" }],
     };
   }
 
-  const module = preflightModule || await import("../../../../sdks/preflight/src/index.js");
+  const manifest = providedManifest || await fetchManifest(manifestUrl, { fetchImpl });
+
+  // Manifest signature. verifyManifest:true is fail-closed: if verification
+  // cannot be performed, verifyGovernanceManifest throws and the caller gets a
+  // hard error -- never a result that looks verified but isn't.
+  let manifestVerified = false;
+  if (verifyManifest) {
+    const verification = await verifyGovernanceManifest(manifest, { fetchImpl, signingKeyUrl });
+    if (!verification.ok) {
+      return {
+        compatible: false,
+        manifestVerified: false,
+        agentCard: card,
+        extension,
+        manifestUrl,
+        incompatibilities: [{ rule: "manifestSignature", severity: "error", detail: verification.error }],
+      };
+    }
+    manifestVerified = true;
+  }
+
   const requestContext = intendedAction.requestContext || intendedAction;
-  const result = await module.preflightCheck({
-    manifestUrl,
-    credential: vc,
-    requestContext,
-    fetchImpl,
-    signingKeyUrl,
-    verify: shouldVerifyManifest,
-  });
+  const { compatible, incompatibilities } = runCompatibilityRules({ manifest, credential: vc, requestContext });
+
   return {
-    ...result,
+    compatible,
+    manifestVerified,
+    incompatibilities,
     agentCard: card,
     extension,
     manifestUrl,
