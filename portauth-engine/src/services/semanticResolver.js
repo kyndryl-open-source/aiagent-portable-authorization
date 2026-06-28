@@ -63,7 +63,7 @@ export function buildMappingCacheFromRows(rows, now = new Date()) {
   return mappings;
 }
 
-function defaultMappings() {
+export function defaultMappings() {
   return new Map([
     // Core MVV — request-context attributes
     ["core.amount", { localField: "claimAmount", type: "number", profileId: "mvv-core" }],
