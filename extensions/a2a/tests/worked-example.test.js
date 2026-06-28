@@ -20,6 +20,9 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
 
 import { EXTENSION_URI, buildA2aSendMessageRequest, buildPortAuthMetadata } from "portauth-a2a";
 import { createPortAuthReceiver } from "portauth-a2a-receiver";
@@ -28,14 +31,21 @@ import { billPaymentContextMapper } from "../reference-receiver/examples/bill-pa
 // The engine lives in a sibling package. Import its real MVV mapping table so
 // the test proves the actual `core.* -> local` mapping, not a restatement of
 // it. `defaultMappings()` is pure data (no DB), which keeps this a hermetic
-// unit test. If the engine source is not present (e.g. the extension is
-// consumed standalone), the resolution assertions are skipped rather than
-// failed.
+// unit test.
+//
+// Skip semantics are deliberately precise: we skip the resolution assertions
+// ONLY when the engine source is genuinely absent from disk (the extension is
+// consumed standalone, outside the monorepo). When the engine IS present — as
+// in the CI monorepo lane — the import is NOT guarded: a failure to import
+// (path drift, ESM resolution error, missing dep) fails this file loudly
+// instead of silently skipping the one assertion that is the whole point of
+// the test. A green check in CI therefore means the binding check actually ran.
+const here = dirname(fileURLToPath(import.meta.url));
+const engineModulePath = resolve(here, "../../../portauth-engine/src/services/semanticResolver.js");
+
 let defaultMappings = null;
-try {
-  ({ defaultMappings } = await import("../../../portauth-engine/src/services/semanticResolver.js"));
-} catch {
-  // engine package unavailable in this context; resolution tests self-skip
+if (existsSync(engineModulePath)) {
+  ({ defaultMappings } = await import(engineModulePath));
 }
 
 // The VC issued by the customer in SPEC §7.1 (semantic identifiers).

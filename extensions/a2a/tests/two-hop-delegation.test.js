@@ -17,6 +17,9 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
 
 import {
   EXTENSION_URI,
@@ -27,13 +30,19 @@ import { createPortAuthReceiver } from "portauth-a2a-receiver";
 
 import { buildAttenuatedClaims, createIntermediateAgent } from "../reference-intermediate/src/intermediate.js";
 
-// The harness imports the engine's pure attenuation rules. If the engine
-// package is not present (extension consumed standalone), skip rather than fail.
+// The harness runs the engine's REAL attenuation rules (imported by
+// in-memory-delegation.js from portauth-engine). Skip semantics are precise:
+// we skip ONLY when the engine source is genuinely absent from disk (extension
+// consumed standalone). When the engine IS present — the CI monorepo lane —
+// the harness import is NOT guarded, so a failure to load the engine rules
+// fails this file loudly instead of silently skipping the widen/narrow checks
+// that are the whole point. A green check in CI means those checks actually ran.
+const here = dirname(fileURLToPath(import.meta.url));
+const engineRulesPath = resolve(here, "../../../portauth-engine/src/services/delegationVerifier.js");
+
 let harness = null;
-try {
+if (existsSync(engineRulesPath)) {
   harness = await import("../reference-intermediate/src/in-memory-delegation.js");
-} catch {
-  // engine package unavailable in this context
 }
 
 const requestContext = {
