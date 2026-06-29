@@ -39,11 +39,13 @@ header set to `EXTENSION_URI`.
 import { sendWithVc } from "portauth-a2a";
 
 const result = await sendWithVc({
-  agentBaseUrl: "https://receiver.example",
-  vc,                       // the Verifiable Credential (Tier1/2/3)
+  receiverUrl: "https://receiver.example",
+  credential: vc,           // the Verifiable Credential (Tier1/2/3)
   vcFormat: "tier1-jwt",
+  presenterId: "agent:customer-finance-1",
+  text: "Pay my electric bill for 2400 USD.",
   requestContext: { action: "payments:bill_pay", resource: "urn:bank:utilities/electric" },
-  message: { /* A2A message parts */ },
+  authorization: "Bearer receiver-endpoint-token", // if the Agent Card advertises bearer auth
 });
 ```
 

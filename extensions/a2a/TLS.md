@@ -85,6 +85,12 @@ The Agent Card should advertise an HTTPS interface:
 `GET /health` and `GET /.well-known/agent-card.json` are intentionally public.
 The bearer token is required only for `POST /message:send`.
 
+The repository CI runs this same TLS overlay as an A2A reference smoke: it
+generates the localhost certificate, starts nginx with
+`docker-compose.tls.yml`, verifies HTTPS health and Agent Card discovery, then
+runs allow/deny presenter flows with `NODE_EXTRA_CA_CERTS` set to the generated
+certificate.
+
 ## Run presenter scenarios over TLS
 
 From `extensions/a2a`:

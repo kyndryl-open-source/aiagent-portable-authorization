@@ -51,7 +51,12 @@ export function createReferenceReceiverServer({
   maxBodyBytes = Number(process.env.A2A_MAX_BODY_BYTES || DEFAULT_MAX_BODY_BYTES),
 } = {}) {
   const receiverAuth = normalizeReceiverAuthConfig({ authMode, bearerToken });
-  const agentCard = createAgentCard({ receiverUrl, name: agentCardName, description: agentCardDescription });
+  const agentCard = createAgentCard({
+    receiverUrl,
+    name: agentCardName,
+    description: agentCardDescription,
+    authMode: receiverAuth.authMode,
+  });
   const openApiDocument = loadOpenApiDocument();
   const handleEvent = (event) => {
     metrics?.record?.(event);

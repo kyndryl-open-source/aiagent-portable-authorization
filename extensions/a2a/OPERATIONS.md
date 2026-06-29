@@ -138,6 +138,31 @@ resolution. Operate a reconciliation sweep:
 
 Set an alert on the count of pending records older than the threshold.
 
+The package also ships a reference reconciliation helper and a Postgres-backed
+CLI for the reference receiver. Report-only mode is the default:
+
+```bash
+cd extensions/a2a
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/portauth \
+npm run reconcile:pending
+```
+
+For the reference receiver's no-side-effect task lifecycle, stale rows can be
+marked `failed` so the next caller retry re-enters PortAuth evaluation instead
+of receiving a permanent `202` pending response:
+
+```bash
+cd extensions/a2a
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/portauth \
+A2A_PENDING_RECONCILE_MODE=mark-failed \
+npm run reconcile:pending
+```
+
+Real receivers that perform external side effects should replace the default
+resolver with one that checks the downstream system and the engine audit record
+before marking a task complete or retryable. Do not blindly mark a task failed
+if doing so could cause a duplicate side effect.
+
 ## 6. Monitoring is not audit
 
 Metrics, logs, and traces are operational and may be sampled or rotated. The

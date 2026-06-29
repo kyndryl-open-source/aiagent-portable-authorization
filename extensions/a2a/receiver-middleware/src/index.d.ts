@@ -118,6 +118,21 @@ export function createPostgresTaskStoreSchemaSql(options?: { tableName?: string 
 export function ensurePostgresTaskStoreSchema(queryable: PostgresQueryable, options?: { tableName?: string }): Promise<{ applied: number[]; total: number }>;
 export function createPostgresTaskStore(options: PostgresTaskStoreOptions): TaskStore;
 export function createMemoryTaskStore(): TaskStore;
+export function isStuckPendingTaskRecord(record: TaskRecord, options?: { olderThanMs?: number; now?: number }): boolean;
+export function buildStuckPendingFailurePatch(record: TaskRecord, options?: { message?: string; errorReason?: string }): Partial<TaskRecord>;
+export function reconcilePendingTaskRecords(input: {
+  taskStore: Pick<TaskStore, "list" | "update">;
+  olderThanMs?: number;
+  limit?: number;
+  now?: number;
+  resolveRecord: (record: TaskRecord) => Promise<Partial<TaskRecord> | null | undefined> | Partial<TaskRecord> | null | undefined;
+}): Promise<{
+  inspected: number;
+  stuck: number;
+  resolved: TaskRecord[];
+  skipped: TaskRecord[];
+  failed: Array<{ record: TaskRecord; error: string }>;
+}>;
 export function defaultRequestContextMapper(input: { message: A2aMessage }): Record<string, unknown>;
 export function firstDataPart(message?: A2aMessage): unknown;
 export function isProofOfPossessionRequired(

@@ -1,0 +1,718 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PortAuth A2A Customer Conversation Review</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #17202a;
+      --muted: #52606d;
+      --line: #d7dee8;
+      --soft: #f6f8fb;
+      --blue: #1f5eff;
+      --blue-soft: #eaf0ff;
+      --green: #0f7b4f;
+      --green-soft: #e7f6ef;
+      --amber: #9a6500;
+      --amber-soft: #fff3d7;
+      --red: #b42318;
+      --red-soft: #fde7e6;
+      --panel: #ffffff;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: #f2f5f9;
+      line-height: 1.5;
+    }
+
+    header {
+      background: #ffffff;
+      border-bottom: 1px solid var(--line);
+    }
+
+    main,
+    .header-inner {
+      width: min(1180px, calc(100% - 40px));
+      margin: 0 auto;
+    }
+
+    .header-inner {
+      padding: 34px 0 26px;
+    }
+
+    .eyebrow {
+      color: var(--blue);
+      font-size: 0.76rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 8px 0 10px;
+      font-size: clamp(2rem, 4vw, 3.4rem);
+      line-height: 1.04;
+      letter-spacing: 0;
+      max-width: 940px;
+    }
+
+    .subtitle {
+      margin: 0;
+      max-width: 940px;
+      color: var(--muted);
+      font-size: 1.05rem;
+    }
+
+    .meta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 22px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 32px;
+      padding: 6px 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--soft);
+      color: #2f3b48;
+      font-size: 0.86rem;
+      font-weight: 650;
+    }
+
+    .pill strong {
+      color: var(--ink);
+    }
+
+    main {
+      padding: 28px 0 56px;
+    }
+
+    section {
+      margin-top: 26px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    section > h2 {
+      margin: 0;
+      padding: 18px 20px;
+      border-bottom: 1px solid var(--line);
+      background: #fbfcfe;
+      font-size: 1.1rem;
+      letter-spacing: 0;
+    }
+
+    .section-body {
+      padding: 20px;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .summary-box {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      background: #ffffff;
+    }
+
+    .summary-box h3 {
+      margin: 0 0 8px;
+      font-size: 0.95rem;
+    }
+
+    .summary-box p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.94rem;
+    }
+
+    .callout {
+      border-left: 4px solid var(--blue);
+      background: var(--blue-soft);
+      padding: 14px 16px;
+      border-radius: 6px;
+      margin: 0 0 18px;
+    }
+
+    .callout p {
+      margin: 0;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+
+    th,
+    td {
+      border-bottom: 1px solid var(--line);
+      padding: 12px 13px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      color: #2f3b48;
+      background: #fbfcfe;
+      font-size: 0.78rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    td {
+      font-size: 0.94rem;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    code {
+      padding: 1px 5px;
+      border-radius: 4px;
+      background: #eef2f7;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 0.9em;
+    }
+
+    .severity {
+      display: inline-flex;
+      min-width: 58px;
+      justify-content: center;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .red {
+      color: var(--red);
+      background: var(--red-soft);
+      border: 1px solid #f4b7b3;
+    }
+
+    .amber {
+      color: var(--amber);
+      background: var(--amber-soft);
+      border: 1px solid #f1d38a;
+    }
+
+    .green {
+      color: var(--green);
+      background: var(--green-soft);
+      border: 1px solid #a9ddc4;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .list-panel {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px 18px;
+      background: #ffffff;
+    }
+
+    .list-panel h3 {
+      margin: 0 0 10px;
+      font-size: 1rem;
+    }
+
+    ul {
+      margin: 0;
+      padding-left: 20px;
+    }
+
+    li {
+      margin: 7px 0;
+    }
+
+    .source-list a {
+      color: var(--blue);
+      text-decoration: none;
+      border-bottom: 1px solid rgba(31, 94, 255, 0.25);
+    }
+
+    .source-list a:hover {
+      border-bottom-color: var(--blue);
+    }
+
+    .small {
+      color: var(--muted);
+      font-size: 0.88rem;
+    }
+
+    @media (max-width: 840px) {
+      main,
+      .header-inner {
+        width: min(100% - 28px, 1180px);
+      }
+
+      .summary-grid,
+      .two-col {
+        grid-template-columns: 1fr;
+      }
+
+      table {
+        table-layout: auto;
+      }
+
+      th,
+      td {
+        padding: 10px 9px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <div class="eyebrow">Code review memo for seller readiness</div>
+      <h1>PortAuth A2A Extension: Customer Conversation Review</h1>
+      <p class="subtitle">
+        Review of the current public <code>extensions/a2a</code> implementation from a seller-facing lens:
+        what can be safely positioned, and what would derail enterprise customer conversations if over-claimed.
+      </p>
+      <div class="meta-row">
+        <span class="pill"><strong>Reviewed:</strong> 2026-06-28</span>
+        <span class="pill"><strong>Commit:</strong> <code>8b6d9c3</code></span>
+        <span class="pill"><strong>Branch:</strong> <code>fix/a2a-preflight-self-contained-verifier</code></span>
+        <span class="pill"><strong>Packages:</strong> <code>portauth-a2a@0.1.0</code>, <code>portauth-a2a-receiver@0.1.0</code></span>
+        <span class="pill"><strong>Tests:</strong> <code>82 pass / 0 fail</code></span>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section>
+      <h2>Executive Read</h2>
+      <div class="section-body">
+        <div class="callout">
+          <p>
+            This is credible as a reusable open-source reference implementation for
+            PortAuth over the A2A HTTP+JSON binding. The previous <code>preflight()</code>
+            package-boundary blocker is resolved; the remaining work is discovery metadata,
+            explicit interop positioning, TLS smoke gating, and operational recovery examples.
+          </p>
+        </div>
+        <div class="summary-grid">
+          <div class="summary-box">
+            <h3>Best seller positioning</h3>
+            <p>
+              "A production-track reference implementation and SDK showing how to carry
+              portable authorization credentials over A2A and enforce them before task acceptance."
+            </p>
+          </div>
+          <div class="summary-box">
+            <h3>Do not over-claim</h3>
+            <p>
+              Avoid "turnkey enterprise product", "all A2A bindings", "certified interop",
+              or "drop-in production receiver"; use the scoped claims and evidence below.
+            </p>
+          </div>
+          <div class="summary-box">
+            <h3>Current customer fit</h3>
+            <p>
+              Strong for architecture workshops, PoCs, reference pilots, and teams willing
+              to bring their own gateway, store, IdP, deployment, and operations model.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Resolved Risks And Current Scope</h2>
+      <div class="section-body">
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 96px;">Severity</th>
+              <th style="width: 24%;">Issue</th>
+              <th>Why it will matter in customer conversations</th>
+              <th>Evidence</th>
+              <th>Resolution</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="severity green">Fixed</span></td>
+              <td><strong>Published SDK <code>preflight()</code> now runs outside the monorepo.</strong></td>
+              <td>
+                The SDK now carries a self-contained <code>preflight()</code> implementation with no cross-package
+                dynamic import. Manifest verification is fail-closed, and proof payload binding is enforced
+                against the fetched manifest.
+              </td>
+              <td>
+                <code>sdk/src/index.js</code>; <code>tests/preflight.test.js</code>; packed-tarball smoke
+                confirmed no <code>ERR_MODULE_NOT_FOUND</code>.
+              </td>
+              <td>
+                Keep the packed-package smoke in the release checklist so this cannot regress before publish.
+              </td>
+            </tr>
+            <tr>
+              <td><span class="severity green">Fixed</span></td>
+              <td><strong>Bearer endpoint auth is advertised in the Agent Card.</strong></td>
+              <td>
+                When the reference receiver runs in bearer mode, discovery clients can learn the endpoint-auth
+                requirement from the Agent Card instead of relying only on README environment variables or OpenAPI.
+              </td>
+              <td>
+                <code>reference-receiver/src/agent-card.js</code>, <code>reference-receiver/src/server.js</code>,
+                <code>tests/a2a-reference.test.js</code>.
+              </td>
+              <td>
+                <code>securitySchemes.receiverBearer</code> and <code>securityRequirements</code> are emitted only
+                when bearer mode is enabled; the token value is never published.
+              </td>
+            </tr>
+            <tr>
+              <td><span class="severity green">Scoped</span></td>
+              <td><strong>A2A compatibility is explicitly scoped to HTTP+JSON.</strong></td>
+              <td>
+                The implementation still does not claim JSON-RPC or gRPC. The customer-facing fix is precise
+                positioning: supported and tested for A2A HTTP+JSON, with adapters needed for other bindings.
+              </td>
+              <td>
+                <code>COMPATIBILITY.md</code>, <code>VERSIONING.md</code>, <code>tests/wire-contract.test.js</code>,
+                <code>tests/a2a-reference.test.js</code>.
+              </td>
+              <td>
+                Compatibility matrix added; tests pin the wording and exercise a live HTTP+JSON client-to-receiver
+                flow through Agent Card discovery.
+              </td>
+            </tr>
+            <tr>
+              <td><span class="severity green">Fixed</span></td>
+              <td><strong>Durable audit/task recovery has an executable reference path.</strong></td>
+              <td>
+                The storage-neutral contract remains intact, and adopters now have a runnable stuck-pending
+                reconciliation pattern instead of prose-only recovery guidance.
+              </td>
+              <td>
+                <code>receiver-middleware/src/index.js</code>, <code>reference-receiver/src/reconcile-pending.js</code>,
+                <code>OPERATIONS.md</code>, <code>receiver-middleware/README.md</code>.
+              </td>
+              <td>
+                Added <code>reconcilePendingTaskRecords()</code>, a Postgres CLI wrapper, and tests for report-only
+                and mark-failed recovery modes.
+              </td>
+            </tr>
+            <tr>
+              <td><span class="severity green">Fixed</span></td>
+              <td><strong>TLS compose path is gated in CI.</strong></td>
+              <td>
+                The nginx/self-signed localhost pattern is now executable in automation, not just documented.
+              </td>
+              <td>
+                <code>.github/workflows/ci.yml</code>, <code>TLS.md</code>, <code>docker-compose.tls.yml</code>.
+              </td>
+              <td>
+                CI generates the localhost cert, starts the TLS overlay, verifies HTTPS health and Agent Card
+                discovery, then runs allow/deny presenter flows with <code>NODE_EXTRA_CA_CERTS</code>.
+              </td>
+            </tr>
+            <tr>
+              <td><span class="severity green">Documented</span></td>
+              <td><strong>Enterprise endpoint security boundary is explicit.</strong></td>
+              <td>
+                The reference bearer token remains intentionally simple, but the docs now keep endpoint authentication
+                separate from PortAuth credential authorization and point enterprises to their gateway, OIDC/JWT,
+                mesh, ingress, WAF, and secret-management controls.
+              </td>
+              <td>
+                <code>README.md</code>, <code>OPERATIONS.md</code>, <code>TLS.md</code>,
+                <code>reference-receiver/src/server.js</code>.
+              </td>
+              <td>
+                Seller-safe message: bearer auth is a reference endpoint gate; production teams can replace it with
+                enterprise ingress, gateway, OIDC/JWT, mesh, or equivalent controls.
+              </td>
+            </tr>
+            <tr>
+              <td><span class="severity green">Positioned</span></td>
+              <td><strong>Pre-1.0 packages and draft spec have scoped seller language.</strong></td>
+              <td>
+                This remains pre-1.0 reference code, so the correct fix is not to over-claim maturity. The docs and
+                compatibility matrix now give sellers precise language for that boundary.
+              </td>
+              <td>
+                <code>README.md</code>, <code>VERSIONING.md</code>, <code>COMPATIBILITY.md</code>.
+              </td>
+              <td>
+                Claim "production-track reference implementation for A2A HTTP+JSON"; do not claim turnkey product,
+                certified interop, or all-transport A2A coverage.
+              </td>
+            </tr>
+            <tr>
+              <td><span class="severity green">Fixed</span></td>
+              <td><strong>SDK README quick-use snippet matches the API.</strong></td>
+              <td>
+                The snippet now uses <code>receiverUrl</code>, <code>credential</code>, <code>presenterId</code>,
+                <code>text</code>, <code>requestContext</code>, and optional bearer authorization.
+              </td>
+              <td>
+                <code>sdk/README.md</code>, <code>tests/wire-contract.test.js</code>.
+              </td>
+              <td>
+                Test coverage rejects the old <code>agentBaseUrl</code> / placeholder-message snippet.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <h2>Selling Points</h2>
+      <div class="section-body">
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 26%;">Selling point</th>
+              <th>Seller-safe claim</th>
+              <th>Evidence</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Published reusable packages</strong></td>
+              <td>
+                The core SDK and receiver guard are real npm packages, not just in-repo demos. Both expose ESM,
+                type declarations, package metadata, MIT license, and Node >= 20.
+              </td>
+              <td>
+                <code>npm view portauth-a2a version -> 0.1.0</code>,
+                <code>npm view portauth-a2a-receiver version -> 0.1.0</code>,
+                <code>sdk/package.json</code>, <code>receiver-middleware/package.json</code>.
+              </td>
+            </tr>
+            <tr>
+              <td><strong>Clear separation of concerns</strong></td>
+              <td>
+                PortAuth answers "is this task authorized by this credential?" Endpoint auth answers "may this caller
+                invoke the receiver?" That distinction is correct and easy to explain.
+              </td>
+              <td>
+                <code>README.md:130-155</code>, <code>reference-receiver/src/server.js:164-181</code>,
+                <code>receiver-middleware/src/index.js:392-441</code>.
+              </td>
+            </tr>
+            <tr>
+              <td><strong>Standards-aligned A2A extension model</strong></td>
+              <td>
+                The extension uses Agent Card declaration, <code>A2A-Extensions</code>, and metadata keys under the
+                extension URI instead of forking the A2A message schema.
+              </td>
+              <td>
+                <code>SPEC.md:33-105</code>, <code>sdk/src/index.js:8-24</code>,
+                <code>sdk/src/index.js:469-485</code>, official A2A spec for Agent Card extensions and headers.
+              </td>
+            </tr>
+            <tr>
+              <td><strong>Durable audit/task seam is well-designed</strong></td>
+              <td>
+                The receiver persists a pending record before evaluation, stores terminal responses, avoids raw VC
+                persistence, and allows adopters to plug in their own datastore. The Postgres adapter is a useful
+                reference, not a hard-coded dependency.
+              </td>
+              <td>
+                <code>receiver-middleware/README.md:8-99</code>,
+                <code>receiver-middleware/src/index.js:62-151</code>,
+                <code>tests/postgres-task-store.test.js</code>.
+              </td>
+            </tr>
+            <tr>
+              <td><strong>Important idempotency bugs are fixed</strong></td>
+              <td>
+                The receiver no longer uses <code>taskId</code> as the fallback idempotency key, and transient failed
+                evaluations are not permanently replayed.
+              </td>
+              <td>
+                <code>receiver-middleware/src/index.js:605</code>,
+                <code>receiver-middleware/src/index.js:356-377</code>,
+                <code>tests/a2a-reference.test.js:259-367</code>.
+              </td>
+            </tr>
+            <tr>
+              <td><strong>Proof-of-possession can be required at the boundary</strong></td>
+              <td>
+                Deployments can require PoP globally or by action before the engine call, which gives a strong answer
+                for high-risk workflows where bearer-equivalent VCs are not enough.
+              </td>
+              <td>
+                <code>README.md:34-35</code>, <code>SPEC.md:496-503</code>,
+                <code>reference-receiver/src/server.js:139-147</code>,
+                <code>tests/a2a-reference.test.js:817-852</code>.
+              </td>
+            </tr>
+            <tr>
+              <td><strong>Domain-neutral receiver design</strong></td>
+              <td>
+                The default context mapper is no longer bill-payment-specific. Domain logic is injectable, with a
+                bill-payment example retained as a worked sample.
+              </td>
+              <td>
+                <code>README.md:159-193</code>, <code>receiver-middleware/src/index.js:216-223</code>,
+                <code>reference-receiver/examples/bill-payment-mapper.js</code>.
+              </td>
+            </tr>
+            <tr>
+              <td><strong>N-hop delegation story is credible</strong></td>
+              <td>
+                The reference intermediate authorizes inbound requests, mints attenuated delegated credentials, and
+                forwards a root-to-leaf chain to the downstream receiver.
+              </td>
+              <td>
+                <code>reference-intermediate/src/intermediate.js</code>,
+                <code>SPEC.md:187-227</code>, <code>tests/two-hop-delegation.test.js</code>.
+              </td>
+            </tr>
+            <tr>
+              <td><strong>Operational seams exist</strong></td>
+              <td>
+                There are real hooks for readiness, metrics, OpenTelemetry, redacting logs, secret validation, TLS
+                termination, and stuck-pending operations.
+              </td>
+              <td>
+                <code>OPERATIONS.md</code>, <code>TLS.md</code>,
+                <code>reference-receiver/src/server.js:310-466</code>,
+                <code>receiver-middleware/src/otel.js</code>.
+              </td>
+            </tr>
+            <tr>
+              <td><strong>Test coverage is no longer cosmetic</strong></td>
+              <td>
+                The local A2A suite passes 67 tests, including receiver auth, durable lifecycle, PoP policy,
+                OpenAPI, OpenTelemetry, two-hop delegation, and wire-contract checks. CI also runs A2A tests and an
+                HTTP reference smoke with bearer auth.
+              </td>
+              <td>
+                Local command: <code>npm test</code> in <code>extensions/a2a</code> returned
+                <code>67 pass / 0 fail</code>. CI: <code>.github/workflows/ci.yml:88-90</code>,
+                <code>:155-172</code>.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <h2>Seller Talk Track</h2>
+      <div class="section-body two-col">
+        <div class="list-panel">
+          <h3>Safe to say</h3>
+          <ul>
+            <li>PortAuth A2A shows how to carry authorization VCs inside A2A messages and evaluate them before task acceptance.</li>
+            <li>The SDK and receiver guard are reusable npm packages at <code>0.1.0</code>.</li>
+            <li>The receiver is framework-neutral and storage-neutral; adopters bring their own service architecture.</li>
+            <li>The reference includes bearer endpoint auth, receiver-to-engine auth, TLS/nginx guidance, metrics, and durable persistence seams.</li>
+            <li>For regulated workflows, PortAuth adds typed bounds, delegation context, idempotency, and audit correlation beyond ordinary bearer tokens.</li>
+          </ul>
+        </div>
+        <div class="list-panel">
+          <h3>Avoid saying</h3>
+          <ul>
+            <li>"Production-grade product." Say "production-track reference implementation."</li>
+            <li>"Works with every A2A client." Say "A2A HTTP+JSON binding today."</li>
+            <li>"Drop-in compliance." Say "provides audit hooks and durable patterns; customer deployment owns retention and operations."</li>
+            <li>"Endpoint security is solved." Say "reference bearer auth is included; enterprises can replace it with gateway, OIDC/JWT, mesh, or ingress policy."</li>
+            <li>"Preflight is ready for installed SDK consumers" until the published package dependency issue is fixed.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Remediation Status</h2>
+      <div class="section-body">
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 90px;">Status</th>
+              <th>Fix</th>
+              <th>Evidence</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="severity green">Done</span></td>
+              <td>Make <code>preflight()</code> work from the published npm package, then test against the packed artifact.</td>
+              <td>Self-contained SDK implementation and packed-package smoke.</td>
+            </tr>
+            <tr>
+              <td><span class="severity green">Done</span></td>
+              <td>Advertise bearer auth in Agent Card security metadata when bearer mode is enabled.</td>
+              <td><code>securitySchemes.receiverBearer</code> plus live discovery-route tests.</td>
+            </tr>
+            <tr>
+              <td><span class="severity green">Done</span></td>
+              <td>Create an A2A interoperability matrix and add at least one external-client smoke test.</td>
+              <td><code>COMPATIBILITY.md</code> plus live HTTP+JSON SDK-to-receiver smoke.</td>
+            </tr>
+            <tr>
+              <td><span class="severity green">Done</span></td>
+              <td>Add a TLS compose CI/nightly smoke and document the result.</td>
+              <td>CI runs <code>docker-compose.tls.yml</code> and HTTPS allow/deny presenter flows.</td>
+            </tr>
+            <tr>
+              <td><span class="severity green">Done</span></td>
+              <td>Ship a reference stuck-pending reconciliation job or script.</td>
+              <td><code>reconcilePendingTaskRecords()</code> and <code>reference-receiver/src/reconcile-pending.js</code>.</td>
+            </tr>
+            <tr>
+              <td><span class="severity green">Done</span></td>
+              <td>Fix SDK README snippet drift and add docs-example tests.</td>
+              <td><code>sdk/README.md</code> and docs drift assertions in <code>wire-contract.test.js</code>.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <h2>Review Evidence</h2>
+      <div class="section-body">
+        <ul class="source-list">
+          <li>Public branch fetched from <a href="https://github.com/kyndryl-open-source/aiagent-portable-authorization/tree/main/extensions/a2a">kyndryl-open-source/aiagent-portable-authorization extensions/a2a</a>; local <code>HEAD</code>, <code>origin/main</code>, and <code>FETCH_HEAD</code> all resolved to <code>3cef124e659e99395d9f02e21824a005c975a1c1</code>.</li>
+          <li><code>npm view portauth-a2a version</code> and <code>npm view portauth-a2a-receiver version</code> both returned <code>0.1.0</code>.</li>
+          <li><code>npm --cache /tmp/npm-cache-a2a pack --dry-run -w sdk</code> showed the SDK tarball contains only <code>src/</code>, <code>README.md</code>, <code>LICENSE</code>, and <code>package.json</code>.</li>
+          <li><code>npm test</code> from <code>extensions/a2a</code> passed <code>67</code> tests with <code>0</code> failures. The live Postgres suite skipped locally without <code>DATABASE_URL</code>; CI provisions Postgres for that job.</li>
+          <li>Official A2A protocol documentation reviewed at <a href="https://a2a-protocol.org/latest/specification/">a2a-protocol.org/latest/specification</a> for Agent Card, supported interfaces, extension headers, and protocol bindings.</li>
+        </ul>
+        <p class="small">
+          This file is intentionally untracked review output. It is meant for internal customer-conversation preparation,
+          not as product documentation.
+        </p>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

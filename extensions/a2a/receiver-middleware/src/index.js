@@ -213,6 +213,81 @@ export function createMemoryTaskStore() {
   };
 }
 
+export function isStuckPendingTaskRecord(record, {
+  olderThanMs = 15 * 60 * 1000,
+  now = Date.now(),
+} = {}) {
+  if (record?.lifecycleState !== "pending") return false;
+  const updatedAt = Date.parse(record.updatedAt || record.createdAt || "");
+  if (!Number.isFinite(updatedAt)) return false;
+  return Number(now) - updatedAt >= Number(olderThanMs);
+}
+
+export function buildStuckPendingFailurePatch(record, {
+  message = "Pending PortAuth A2A task requires reconciliation before retry.",
+  errorReason = "stuck_pending_reconciliation_required",
+} = {}) {
+  return {
+    lifecycleState: "failed",
+    errorReason,
+    response: {
+      status: 503,
+      headers: { "Content-Type": A2A_MEDIA_TYPE },
+      body: buildGoogleRpcStatus({
+        httpStatus: 503,
+        reason: "PORTAUTH_TASK_RECONCILIATION_REQUIRED",
+        message,
+        auditRecordId: record?.auditRecordId,
+        metadata: {
+          taskRecordId: record?.id,
+          idempotencyKey: record?.idempotencyKey,
+        },
+      }),
+    },
+  };
+}
+
+export async function reconcilePendingTaskRecords({
+  taskStore,
+  olderThanMs = 15 * 60 * 1000,
+  limit = 1000,
+  now = Date.now(),
+  resolveRecord,
+} = {}) {
+  if (!taskStore || typeof taskStore.list !== "function" || typeof taskStore.update !== "function") {
+    throw new Error("taskStore with async list() and update() is required");
+  }
+  if (typeof resolveRecord !== "function") {
+    throw new Error("resolveRecord(record) is required");
+  }
+  const records = await taskStore.list({ limit });
+  const stuckRecords = records.filter((record) => isStuckPendingTaskRecord(record, { olderThanMs, now }));
+  const resolved = [];
+  const skipped = [];
+  const failed = [];
+
+  for (const record of stuckRecords) {
+    try {
+      const patch = await resolveRecord(record);
+      if (!patch) {
+        skipped.push(record);
+        continue;
+      }
+      resolved.push(await taskStore.update(record.id, patch));
+    } catch (err) {
+      failed.push({ record, error: err.message });
+    }
+  }
+
+  return {
+    inspected: records.length,
+    stuck: stuckRecords.length,
+    resolved,
+    skipped,
+    failed,
+  };
+}
+
 export function defaultRequestContextMapper({ message }) {
   const data = firstDataPart(message) || {};
   return {

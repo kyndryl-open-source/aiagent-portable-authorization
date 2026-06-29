@@ -149,3 +149,29 @@ Event types: `rejected`, `in_progress`, `replay`, `decision`,
 carry `auditRecordId` (the join key to the engine audit row). See
 [../OPERATIONS.md](../OPERATIONS.md) for the full field reference, metrics,
 alerts, and the stuck-pending reconciliation procedure.
+
+## Stuck-pending reconciliation helper
+
+For receivers that use the task-store lifecycle, the package includes
+`reconcilePendingTaskRecords()`:
+
+```js
+import {
+  buildStuckPendingFailurePatch,
+  reconcilePendingTaskRecords,
+} from "portauth-a2a-receiver";
+
+await reconcilePendingTaskRecords({
+  taskStore,
+  olderThanMs: 15 * 60 * 1000,
+  resolveRecord: async (record) => {
+    // Real services should inspect their own downstream state and the engine
+    // audit record before deciding the final patch.
+    return buildStuckPendingFailurePatch(record);
+  },
+});
+```
+
+The helper is storage-neutral; it uses only the async `list()` and `update()`
+contract. The reference receiver adds a Postgres CLI wrapper:
+`npm run reconcile:pending`.

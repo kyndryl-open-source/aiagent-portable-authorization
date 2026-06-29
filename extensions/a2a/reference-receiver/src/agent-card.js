@@ -14,7 +14,9 @@ export function createAgentCard({
   acceptedAudiences = process.env.PORTAUTH_ACCEPTED_AUDIENCES
     ? process.env.PORTAUTH_ACCEPTED_AUDIENCES.split(",").map((item) => item.trim()).filter(Boolean)
     : [],
+  authMode = process.env.A2A_RECEIVER_AUTH_MODE || "none",
 } = {}) {
+  const security = buildEndpointSecurity(authMode);
   return buildPortAuthAgentCard({
     name: name || "PortAuth A2A Receiver",
     description: description || "Reference A2A receiver that authorizes tasks with PortAuth before accepting them.",
@@ -23,5 +25,27 @@ export function createAgentCard({
     governanceManifestUrl,
     acceptedAudiences,
     required: true,
+    ...security,
   });
+}
+
+export function buildEndpointSecurity(authMode = "none") {
+  if (String(authMode || "none").trim().toLowerCase() !== "bearer") {
+    return {};
+  }
+  return {
+    securitySchemes: {
+      receiverBearer: {
+        type: "http",
+        scheme: "bearer",
+        bearerFormat: "opaque",
+        description: "Bearer token required for POST /message:send. Discovery endpoints remain public.",
+      },
+    },
+    securityRequirements: [
+      {
+        receiverBearer: [],
+      },
+    ],
+  };
 }
