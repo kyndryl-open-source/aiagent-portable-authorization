@@ -9,10 +9,12 @@
     "node": ">=20"
   },
   "dependencies": {
+    "pg": "^8.13.0",
     "portauth-a2a": "file:../sdk",
     "portauth-a2a-receiver": "file:../receiver-middleware"
   },
   "scripts": {
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "reconcile:pending": "node src/reconcile-pending.js"
   }
 }

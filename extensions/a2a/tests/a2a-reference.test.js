@@ -6,6 +6,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import net from "node:net";
 
 import {
   A2A_MEDIA_TYPE,
@@ -20,10 +21,13 @@ import {
 } from "portauth-a2a";
 import {
   buildEngineRequest,
+  buildStuckPendingFailurePatch,
   createMemoryTaskStore,
   createOtelObserver,
   createPortAuthReceiver,
+  isStuckPendingTaskRecord,
   isProofOfPossessionRequired,
+  reconcilePendingTaskRecords,
 } from "portauth-a2a-receiver";
 import {
   authorizeReceiverRequest,
@@ -122,6 +126,22 @@ describe("PortAuth A2A SDK metadata helpers", () => {
     assert.equal(card.supportedInterfaces[0].protocolBinding, "HTTP+JSON");
     assert.equal(card.capabilities.extensions[0].uri, EXTENSION_URI);
     assert.equal(card.capabilities.extensions[0].required, true);
+    assert.equal(card.securitySchemes, undefined);
+    assert.equal(card.securityRequirements, undefined);
+  });
+
+  it("builds Agent Card bearer security metadata when supplied", () => {
+    const card = buildPortAuthAgentCard({
+      url: "http://receiver.test",
+      governanceManifestUrl: "http://engine.test/.well-known/agent-governance",
+      securitySchemes: {
+        receiverBearer: { type: "http", scheme: "bearer", bearerFormat: "opaque" },
+      },
+      securityRequirements: [{ receiverBearer: [] }],
+    });
+    assert.equal(card.securitySchemes.receiverBearer.type, "http");
+    assert.equal(card.securitySchemes.receiverBearer.scheme, "bearer");
+    assert.deepEqual(card.securityRequirements, [{ receiverBearer: [] }]);
   });
 
   it("runs an explicit unsigned preflight through the governance manifest from the Agent Card", async () => {
@@ -674,6 +694,75 @@ describe("PortAuth A2A readiness", () => {
   });
 });
 
+describe("PortAuth A2A stuck-pending reconciliation", () => {
+  it("detects stale pending task records by updatedAt threshold", () => {
+    const record = {
+      id: "record-1",
+      idempotencyKey: "idem-1",
+      lifecycleState: "pending",
+      updatedAt: "2026-06-28T00:00:00.000Z",
+    };
+    assert.equal(isStuckPendingTaskRecord(record, {
+      olderThanMs: 60_000,
+      now: Date.parse("2026-06-28T00:02:00.000Z"),
+    }), true);
+    assert.equal(isStuckPendingTaskRecord({ ...record, lifecycleState: "completed" }, {
+      olderThanMs: 60_000,
+      now: Date.parse("2026-06-28T00:02:00.000Z"),
+    }), false);
+  });
+
+  it("can mark a stale pending record failed so retry can re-evaluate", async () => {
+    const taskStore = createMemoryTaskStore();
+    await taskStore.createPending({
+      id: "record-1",
+      taskId: "task-1",
+      idempotencyKey: "idem-1",
+      lifecycleState: "pending",
+      task: { id: "task-1", status: { state: "TASK_STATE_SUBMITTED" } },
+      response: null,
+      updatedAt: "2026-06-28T00:00:00.000Z",
+    });
+
+    const summary = await reconcilePendingTaskRecords({
+      taskStore,
+      olderThanMs: 60_000,
+      now: Date.parse("2026-06-28T00:02:00.000Z"),
+      resolveRecord: (record) => buildStuckPendingFailurePatch(record),
+    });
+
+    assert.equal(summary.inspected, 1);
+    assert.equal(summary.stuck, 1);
+    assert.equal(summary.resolved.length, 1);
+    const stored = await taskStore.get("record-1");
+    assert.equal(stored.lifecycleState, "failed");
+    assert.equal(stored.response.status, 503);
+    assert.match(JSON.stringify(stored.response.body), /PORTAUTH_TASK_RECONCILIATION_REQUIRED/);
+  });
+
+  it("supports report-only reconciliation by skipping records with no patch", async () => {
+    const taskStore = createMemoryTaskStore();
+    await taskStore.createPending({
+      id: "record-report",
+      idempotencyKey: "idem-report",
+      lifecycleState: "pending",
+      updatedAt: "2026-06-28T00:00:00.000Z",
+    });
+
+    const summary = await reconcilePendingTaskRecords({
+      taskStore,
+      olderThanMs: 60_000,
+      now: Date.parse("2026-06-28T00:02:00.000Z"),
+      resolveRecord: () => null,
+    });
+
+    assert.equal(summary.stuck, 1);
+    assert.equal(summary.resolved.length, 0);
+    assert.equal(summary.skipped.length, 1);
+    assert.equal((await taskStore.get("record-report")).lifecycleState, "pending");
+  });
+});
+
 describe("PortAuth A2A neutral receiver template", () => {
   function makeDomainMessage(data) {
     return buildA2aSendMessageRequest({
@@ -688,10 +777,11 @@ describe("PortAuth A2A neutral receiver template", () => {
   }
 
   async function startTestServer(options) {
-    const parts = createReferenceReceiverServer({ logger: silentLogger(), ...options });
-    await new Promise((resolve) => parts.server.listen(0, "127.0.0.1", resolve));
-    const { port } = parts.server.address();
-    return { ...parts, baseUrl: `http://127.0.0.1:${port}` };
+    const port = await reservePort();
+    const baseUrl = `http://127.0.0.1:${port}`;
+    const parts = createReferenceReceiverServer({ receiverUrl: baseUrl, logger: silentLogger(), ...options });
+    await new Promise((resolve) => parts.server.listen(port, "127.0.0.1", resolve));
+    return { ...parts, baseUrl };
   }
 
   async function postMessage(baseUrl, body) {
@@ -744,10 +834,38 @@ describe("PortAuth A2A neutral receiver template", () => {
     }
   });
 
+  it("drives the live reference receiver through the advertised HTTP+JSON binding", async () => {
+    let captured = null;
+    const { server, baseUrl } = await startTestServer({
+      engineUrl: "http://engine.test",
+      fetchImpl: async (_url, options) => {
+        captured = JSON.parse(options.body);
+        return response(200, { decision: "allow", auditRecordId: "ar_live_client" });
+      },
+    });
+    try {
+      const result = await sendWithVc({
+        receiverUrl: baseUrl,
+        credential,
+        vcFormat: "tier1-jwt",
+        presenterId: "agent:neutral-1",
+        text: "Read document 42",
+        requestContext: { action: "docs:read", resource: "urn:docs:42" },
+      });
+      assert.equal(result.status, 200);
+      assert.equal(result.body.task.metadata.auditRecordId, "ar_live_client");
+      assert.equal(captured.requestContext.action, "docs:read");
+      assert.equal(captured.requestContext.resource, "urn:docs:42");
+    } finally {
+      server.close();
+    }
+  });
+
   it("serves a domain-neutral Agent Card by default", () => {
     const { agentCard } = createReferenceReceiverServer({ engineUrl: "http://engine.test", logger: silentLogger() });
     assert.match(agentCard.name, /PortAuth A2A Receiver/);
     assert.doesNotMatch(agentCard.name, /Bill Payment/);
+    assert.equal(agentCard.securitySchemes, undefined);
   });
 
   it("allows overriding the Agent Card identity", () => {
@@ -757,6 +875,39 @@ describe("PortAuth A2A neutral receiver template", () => {
       agentCardName: "Acme Procurement Receiver",
     });
     assert.equal(agentCard.name, "Acme Procurement Receiver");
+  });
+
+  it("advertises bearer endpoint auth in the Agent Card when bearer mode is enabled", () => {
+    const { agentCard } = createReferenceReceiverServer({
+      engineUrl: "http://engine.test",
+      authMode: "bearer",
+      bearerToken: "receiver-secret",
+      logger: silentLogger(),
+    });
+    assert.equal(agentCard.securitySchemes.receiverBearer.type, "http");
+    assert.equal(agentCard.securitySchemes.receiverBearer.scheme, "bearer");
+    assert.deepEqual(agentCard.securityRequirements, [{ receiverBearer: [] }]);
+    assert.equal(JSON.stringify(agentCard).includes("receiver-secret"), false);
+  });
+
+  it("serves bearer endpoint auth metadata from the live Agent Card discovery route", async () => {
+    const { server } = createReferenceReceiverServer({
+      engineUrl: "http://engine.test",
+      authMode: "bearer",
+      bearerToken: "receiver-secret",
+      logger: silentLogger(),
+    });
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const { port } = server.address();
+      const resp = await fetch(`http://127.0.0.1:${port}/.well-known/agent-card.json`);
+      assert.equal(resp.status, 200);
+      const body = await resp.json();
+      assert.equal(body.securitySchemes.receiverBearer.scheme, "bearer");
+      assert.deepEqual(body.securityRequirements, [{ receiverBearer: [] }]);
+    } finally {
+      server.close();
+    }
   });
 
   it("resolves the neutral mapper when A2A_CONTEXT_MAPPER is unset", async () => {
@@ -1012,4 +1163,15 @@ function silentLogger() {
     warn() {},
     error() {},
   };
+}
+
+async function reservePort() {
+  const server = net.createServer();
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const { port } = server.address();
+  await new Promise((resolve) => server.close(resolve));
+  return port;
 }

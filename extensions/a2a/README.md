@@ -19,6 +19,8 @@ runbook. Remaining items a deployment still owns:
   telemetry backend, and operate a stuck-pending reconciliation sweep.
 - Publish the workspace packages to npm once v1 is frozen.
 - Run the compose-backed A2A smoke and CI tests for every change.
+- Scope interoperability claims to the supported A2A HTTP+JSON binding; see
+  [COMPATIBILITY.md](COMPATIBILITY.md).
 
 ### Receiver environment variables
 
@@ -46,6 +48,7 @@ runbook. Remaining items a deployment still owns:
 | [reference-intermediate/](reference-intermediate/) | Producer side of N-hop delegation: authorizes the inbound hop, mints an attenuated credential, and forwards downstream. Runnable demo: `npm run two-hop`. |
 | [schemas/](schemas/) | JSON Schemas for the Agent Card extension declaration and message metadata entries. |
 | [schemas/openapi.json](schemas/openapi.json) | OpenAPI 3.1 contract for the receiver's HTTP surface (also served at `GET /openapi.json`). |
+| [COMPATIBILITY.md](COMPATIBILITY.md) | A2A transport-binding support matrix and interoperability scope wording. |
 | [TLS.md](TLS.md) | Local nginx TLS reverse-proxy example with generated localhost certificate. |
 | [OPERATIONS.md](OPERATIONS.md) | Production runbook: secrets, rotation, monitoring, alerts, reconciliation. |
 | [VERSIONING.md](VERSIONING.md) | Wire-format freeze policy, package semver, compatibility matrix, and the publish checklist. |
@@ -157,6 +160,11 @@ A2A_RECEIVER_BEARER_TOKEN=dev-a2a-receiver-token-change-me npm run allow
 and Agent Card discovery keep working. Production teams can replace this
 reference token check with an API gateway, ingress policy, OIDC/JWT validation,
 service mesh policy, or another control that matches their environment.
+
+When bearer mode is enabled, the Agent Card advertises endpoint authentication
+through `securitySchemes.receiverBearer` and `securityRequirements`. It never
+publishes the token value; it only tells discovery clients that `POST
+/message:send` requires an `Authorization: Bearer <token>` header.
 
 ## Domain context mapping (bring your own)
 
@@ -317,7 +325,7 @@ The reference flow:
 |---|---|---|
 | 0 | SPEC.md + PoC | done |
 | 1 | `sdk/` caller SDK with Agent Card discovery and `sendWithVc()` | done |
-| 2 | `sdk/` `preflight()` wrapper over `@portauth/preflight` | done |
+| 2 | `sdk/` self-contained `preflight()` compatibility and manifest verification | done |
 | 3 | `receiver-middleware/` receiver guard | done |
 | 4 | `reference-presenter/` and `reference-receiver/` real HTTP+JSON agents | done |
 | 5 | Conformance tests under `tests/` and CI gating | done |

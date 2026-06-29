@@ -750,6 +750,8 @@ export function buildPortAuthAgentCard({
   acceptedAudiences = [],
   required = true,
   skills,
+  securitySchemes,
+  securityRequirements,
 } = {}) {
   if (!url) throw new Error("Agent Card interface url is required");
   return {
@@ -782,6 +784,8 @@ export function buildPortAuthAgentCard({
         },
       ],
     },
+    ...(securitySchemes ? { securitySchemes } : {}),
+    ...(securityRequirements ? { securityRequirements } : {}),
     defaultInputModes: ["text/plain", "application/json"],
     defaultOutputModes: ["text/plain", "application/json"],
     skills: skills || [

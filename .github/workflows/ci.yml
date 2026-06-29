@@ -178,10 +178,37 @@ jobs:
           node reference-presenter/src/send-bill-payment.js allow
           node reference-presenter/src/send-bill-payment.js deny-amount
 
+      - name: Run A2A TLS reference smoke
+        env:
+          ISSUER_URL: http://localhost:3100
+          ENGINE_URL: http://localhost:3200
+          ISSUER_ID_FOR_ENGINE: http://portauth-issuer:3100
+          A2A_RECEIVER_BEARER_TOKEN: dev-a2a-receiver-token-change-me
+        run: |
+          cd extensions/a2a
+          npm run tls:cert
+          cd ../..
+          docker compose -f portauth-docker-compose.yml -f extensions/a2a/docker-compose.tls.yml up -d --build a2a-nginx
+          for i in $(seq 1 30); do
+            if curl -sf --cacert extensions/a2a/tls/localhost.crt https://localhost:3443/health >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl -sf --cacert extensions/a2a/tls/localhost.crt https://localhost:3443/health >/dev/null
+          curl -sf --cacert extensions/a2a/tls/localhost.crt https://localhost:3443/.well-known/agent-card.json >/dev/null
+          cd extensions/a2a
+          NODE_EXTRA_CA_CERTS="$PWD/tls/localhost.crt" \
+          A2A_RECEIVER_URL=https://localhost:3443 \
+          node reference-presenter/src/send-bill-payment.js allow
+          NODE_EXTRA_CA_CERTS="$PWD/tls/localhost.crt" \
+          A2A_RECEIVER_URL=https://localhost:3443 \
+          node reference-presenter/src/send-bill-payment.js deny-amount
+
       - name: Dump compose logs on failure
         if: failure()
         run: |
-          docker compose -f portauth-docker-compose.yml logs --tail=400
+          docker compose -f portauth-docker-compose.yml -f extensions/a2a/docker-compose.tls.yml logs --tail=400
           if [[ -f /tmp/portauth-a2a-receiver.log ]]; then
             echo "== A2A receiver log =="
             cat /tmp/portauth-a2a-receiver.log
@@ -189,4 +216,4 @@ jobs:
 
       - name: Tear down compose
         if: always()
-        run: docker compose -f portauth-docker-compose.yml down -v
+        run: docker compose -f portauth-docker-compose.yml -f extensions/a2a/docker-compose.tls.yml down -v

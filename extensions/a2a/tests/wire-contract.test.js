@@ -33,7 +33,8 @@ import {
 } from "portauth-a2a";
 
 const V1_URI = "https://kyndryl-open-source.github.io/aiagent-portable-authorization/a2a/v1";
-const schemasDir = path.resolve(fileURLToPath(import.meta.url), "../../schemas");
+const extensionDir = path.resolve(fileURLToPath(import.meta.url), "../..");
+const schemasDir = path.join(extensionDir, "schemas");
 
 test("extension URI is frozen at v1", () => {
   assert.equal(EXTENSION_URI, V1_URI);
@@ -76,6 +77,23 @@ test("published JSON schemas reference the same v1 URI", () => {
   const card = JSON.parse(readFileSync(path.join(schemasDir, "agent-card-extension.schema.json"), "utf8"));
   assert.equal(card.$id, `${V1_URI}/agent-card-extension.schema.json`);
   assert.equal(card.properties.uri.const, V1_URI);
+});
+
+test("compatibility docs explicitly scope support to A2A HTTP+JSON", () => {
+  const doc = readFileSync(path.join(extensionDir, "COMPATIBILITY.md"), "utf8");
+  assert.match(doc, /\| HTTP\+JSON \| Supported and tested \|/);
+  assert.match(doc, /\| JSON-RPC \| Not implemented \|/);
+  assert.match(doc, /\| gRPC \| Not implemented \|/);
+  assert.match(doc, /Avoid:\n\n> PortAuth A2A supports every A2A transport binding\./);
+});
+
+test("SDK quick-use snippet uses live sendWithVc option names", () => {
+  const doc = readFileSync(path.join(extensionDir, "sdk/README.md"), "utf8");
+  assert.match(doc, /receiverUrl:/);
+  assert.match(doc, /credential: vc/);
+  assert.match(doc, /presenterId:/);
+  assert.doesNotMatch(doc, /agentBaseUrl:/);
+  assert.doesNotMatch(doc, /message: \{ \/\* A2A message parts \*\/ \}/);
 });
 
 test("engine-error to A2A-error mapping is frozen for the core reasons", () => {

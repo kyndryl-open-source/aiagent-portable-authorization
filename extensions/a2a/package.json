@@ -19,6 +19,7 @@
     "presenter": "node reference-presenter/src/send-bill-payment.js",
     "allow": "node reference-presenter/src/send-bill-payment.js allow",
     "deny": "node reference-presenter/src/send-bill-payment.js deny-amount",
+    "reconcile:pending": "npm run reconcile:pending -w reference-receiver",
     "tls:cert": "sh tls/generate-localhost-cert.sh",
     "tls:up": "cd ../.. && docker compose -f portauth-docker-compose.yml -f extensions/a2a/docker-compose.tls.yml up -d --build",
     "tls:down": "cd ../.. && docker compose -f portauth-docker-compose.yml -f extensions/a2a/docker-compose.tls.yml down -v"

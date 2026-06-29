@@ -70,6 +70,8 @@ this repo the npm workspace resolves the range to the local package.
 
 ### Compatibility matrix
 
+Package compatibility:
+
 | `portauth-a2a` | `portauth-a2a-receiver` | Wire | Status |
 |---|---|---|---|
 | `0.1.x` | `0.1.x` | `v1` | current |
@@ -77,6 +79,10 @@ this repo the npm workspace resolves the range to the local package.
 Extend this row-per-release as versions ship. Any two rows that share the same
 **Wire** column interoperate over the network even if their package versions
 differ.
+
+A2A transport-binding compatibility is documented separately in
+[COMPATIBILITY.md](COMPATIBILITY.md). The current reusable path supports the
+HTTP+JSON binding; JSON-RPC and gRPC require adapters or future bindings.
 
 ## 3. Publishing checklist
 
